@@ -1,0 +1,5 @@
+"""
+Pacote da API FastAPI
+"""
+
+

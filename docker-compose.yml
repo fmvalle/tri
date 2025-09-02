@@ -1,0 +1,50 @@
+# Docker Compose v3.8
+
+services:
+  tri-system:
+    build: .
+    container_name: tri-system
+    ports:
+      - "8501:8501"
+    volumes:
+      # Volume para dados de entrada
+      - ./data/input:/app/data/input
+      # Volume para resultados
+      - ./data/output:/app/data/output
+      # Volume para relatórios
+      - ./reports:/app/reports
+      # Volume para logs
+      - ./logs:/app/logs
+      # Volume para configurações (opcional)
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - PYTHONUNBUFFERED=1
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import streamlit; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Serviço alternativo para interface de linha de comando
+  tri-cli:
+    build: .
+    container_name: tri-cli
+    volumes:
+      - ./data/input:/app/data/input
+      - ./data/output:/app/data/output
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "main.py"]
+    profiles:
+      - cli
+
+volumes:
+  tri-data:
+    driver: local

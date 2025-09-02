@@ -1,0 +1,42 @@
+{
+  "Resultado_20250828_173959": {
+    "name": "SFB - 3\u00b0 ano - MT (parametros customizados)",
+    "timestamp": "2025-08-28T17:39:59.856608",
+    "total_students": 1838,
+    "theta_mean": -0.6267693144722524,
+    "enem_mean": 437.33133841131666,
+    "file_path": "saved_results/Resultado_20250828_173959.csv"
+  },
+  "Resultado_20250828_174057": {
+    "name": "SFB - 3\u00b0 ano - MT (parametros default)",
+    "timestamp": "2025-08-28T17:40:57.102966",
+    "total_students": 1838,
+    "theta_mean": -0.730405331882481,
+    "enem_mean": 426.9488574537541,
+    "file_path": "saved_results/Resultado_20250828_174057.csv"
+  },
+  "Resultado_20250828_175217": {
+    "name": "Resultado_20250828_175217",
+    "timestamp": "2025-08-28T17:52:17.392797",
+    "total_students": 1838,
+    "theta_mean": -0.6267693144722524,
+    "enem_mean": 437.33133841131666,
+    "file_path": "saved_results/Resultado_20250828_175217.csv"
+  },
+  "Resultado_20250829_162507": {
+    "name": "Resultado_20250829_162507",
+    "timestamp": "2025-08-29T16:25:07.843271",
+    "total_students": 1838,
+    "theta_mean": -0.5371931447225244,
+    "enem_mean": 446.28454842219804,
+    "file_path": "saved_results/Resultado_20250829_162507.csv"
+  },
+  "Resultado_20250829_172154": {
+    "name": "Resultado_20250829_172154",
+    "timestamp": "2025-08-29T17:21:54.548809",
+    "total_students": 1895,
+    "theta_mean": -0.28009815303430075,
+    "enem_mean": 471.9841688654354,
+    "file_path": "saved_results/Resultado_20250829_172154.csv"
+  }
+}
