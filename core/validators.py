@@ -324,9 +324,9 @@ class DataValidator:
             result['errors'].append(f"{out_of_bounds} notas ENEM fora dos limites (0-1000)")
         
         # Verificar valores extremos
-        extreme_values = ((enem_series < 100) | (enem_series > 900)).sum()
+        extreme_values = ((enem_series < 100) | (enem_series > 1100)).sum()
         if extreme_values > 0:
-            result['warnings'].append(f"{extreme_values} notas extremas (< 100 ou > 900)")
+            result['warnings'].append(f"{extreme_values} notas extremas (< 100 ou > 1100)")
         
         return result
     

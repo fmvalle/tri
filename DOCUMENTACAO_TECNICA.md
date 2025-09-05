@@ -336,7 +336,7 @@ def _handle_extreme_responses(self, responses: np.ndarray,
 
 #### **3. Resultados**
 - **Theta**: -4.0 ≤ θ ≤ 4.0
-- **Nota ENEM**: 100 ≤ nota ≤ 900
+- **Nota ENEM**: 100 ≤ nota ≤ 1100
 
 ### **Implementação da Validação**
 
