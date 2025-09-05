@@ -351,10 +351,10 @@ class DataProcessor:
     
     def validate_data_quality(self, df: pd.DataFrame) -> Dict[str, any]:
         """
-        Valida qualidade dos dados
+        Valida qualidade dos dados (formato Excel original)
         
         Args:
-            df: DataFrame com respostas
+            df: DataFrame com respostas (formato cartão de resposta)
             
         Returns:
             Dicionário com métricas de qualidade
@@ -362,23 +362,66 @@ class DataProcessor:
         try:
             metrics = {}
             
-            # Estatísticas básicas
-            metrics['total_students'] = df['CodPessoa'].nunique()
-            metrics['total_items'] = df['Questao'].nunique()
-            metrics['total_responses'] = len(df)
+            # Verificar se é formato Excel (colunas de itens)
+            item_columns = self._extract_item_columns(df.columns)
             
-            # Verificar respostas completas
-            expected_responses = metrics['total_students'] * metrics['total_items']
-            metrics['completeness'] = metrics['total_responses'] / expected_responses
-            
-            # Verificar distribuição de acertos
-            metrics['mean_accuracy'] = df['Acerto'].mean()
-            metrics['std_accuracy'] = df['Acerto'].std()
-            
-            # Verificar estudantes com respostas incompletas
-            responses_per_student = df.groupby('CodPessoa').size()
-            incomplete_students = (responses_per_student != metrics['total_items']).sum()
-            metrics['incomplete_students'] = incomplete_students
+            if item_columns:
+                # Formato Excel original - validar colunas de itens
+                metrics['format_type'] = 'excel_cartao_resposta'
+                metrics['total_students'] = len(df)
+                metrics['total_items'] = len(item_columns)
+                metrics['total_responses'] = len(df) * len(item_columns)
+                
+                # Verificar se tem coluna CodPessoa
+                if 'CodPessoa' in df.columns:
+                    metrics['has_cod_pessoa'] = True
+                    metrics['unique_students'] = df['CodPessoa'].nunique()
+                else:
+                    metrics['has_cod_pessoa'] = False
+                    metrics['unique_students'] = len(df)
+                
+                # Verificar completude (todas as colunas de itens preenchidas)
+                item_data = df[list(item_columns.keys())]
+                completeness = (item_data.notna().sum().sum()) / (len(df) * len(item_columns))
+                metrics['completeness'] = completeness
+                
+                # Verificar valores únicos nas respostas
+                unique_responses = set()
+                for col in item_columns.keys():
+                    unique_responses.update(item_data[col].dropna().unique())
+                metrics['unique_responses'] = list(unique_responses)
+                metrics['response_variety'] = len(unique_responses)
+                
+            else:
+                # Formato processado (CodPessoa, Questao, RespostaAluno, Gabarito)
+                required_columns = ['CodPessoa', 'Questao', 'RespostaAluno', 'Gabarito']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                
+                if missing_columns:
+                    self.logger.error(f"Formato não reconhecido. Colunas disponíveis: {list(df.columns)}")
+                    return {}
+                
+                metrics['format_type'] = 'processed_data'
+                metrics['total_students'] = df['CodPessoa'].nunique()
+                metrics['total_items'] = df['Questao'].nunique()
+                metrics['total_responses'] = len(df)
+                
+                # Verificar respostas completas
+                expected_responses = metrics['total_students'] * metrics['total_items']
+                metrics['completeness'] = metrics['total_responses'] / expected_responses
+                
+                # Calcular acertos se não existir
+                if 'Acerto' not in df.columns:
+                    df['Acerto'] = (df['RespostaAluno'] == df['Gabarito']).astype(int)
+                
+                # Verificar distribuição de acertos
+                metrics['mean_accuracy'] = df['Acerto'].mean()
+                metrics['std_accuracy'] = df['Acerto'].std()
+                
+                # Verificar estudantes com respostas incompletas
+                responses_per_student = df.groupby('CodPessoa').size()
+                incomplete_students = (responses_per_student != metrics['total_items']).sum()
+                metrics['incomplete_students'] = incomplete_students
             
             # Log das métricas
             self.logger.info(f"Qualidade dos dados: {metrics}")

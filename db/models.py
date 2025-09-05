@@ -60,6 +60,7 @@ class Execution(Base):
     __tablename__ = "executions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[Optional[str]] = mapped_column(String(255))  # Nome personalizado para a execução
     dataset_id: Mapped[Optional[int]] = mapped_column(ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True)
     parameters_set_id: Mapped[Optional[int]] = mapped_column(ForeignKey("parameters_sets.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(50), default="completed")  # completed|failed|running
@@ -68,7 +69,7 @@ class Execution(Base):
 
     dataset: Mapped[Dataset] = relationship("Dataset", back_populates="executions")
     parameters_set: Mapped[ParametersSet] = relationship("ParametersSet", back_populates="executions")
-    results: Mapped[list["StudentResult"]] = relationship("StudentResult", back_populates="execution", cascade="all, delete-orphan")
+    results: Mapped[list["StudentResult"]] = relationship("StudentResult", back_populates="execution", cascade="all,delete-orphan")
 
 
 class StudentResult(Base):

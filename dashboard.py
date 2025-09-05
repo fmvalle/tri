@@ -127,345 +127,153 @@ class TRIDashboard:
         st.markdown('<h1 class="main-header">📊 Sistema TRI - Dashboard</h1>', unsafe_allow_html=True)
         st.markdown("### Teoria de Resposta ao Item - Modelo ENEM/SAEB")
         
+
+        
         # Botão de logout
-        if st.sidebar.button("🚪 Logout"):
-            st.session_state['authenticated'] = False
-            st.rerun()
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🚪 Logout"):
+                st.session_state['authenticated'] = False
+                st.rerun()
         
-        # Sidebar
-        self.sidebar()
-        
-        # Main content
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-            "🏠 Início", 
+        # Main content tab5,
+        tab1, tab2, tab3, tab4, tab6, tab7 = st.tabs([
             "📁 Upload de Dados", 
-            "📋 Parâmetros",
-            "⚙️ Processamento TRI", 
-            "📈 Análise e Visualizações",
-            "📋 Relatórios",
-            "💾 Histórico"
+            "🔧 Calibração de Itens", 
+            "📊 Processamento TRI", 
+            "📈 Visualizações",
+            # "🔄 Equating de Escalas",
+            "💾 Histórico",
+            "📋 Parâmetros Salvos"
         ])
         
+        # Aba 1: Upload de Dados
         with tab1:
-            self.home_tab()
+            self.upload_data_tab()
+        
+        # Aba 2: Calibração de Itens
         with tab2:
-            self.upload_tab()
+            self.calibration_tab()
+        
+        # Aba 3: Processamento TRI
         with tab3:
-            self.parameters_tab()
+            self.tri_processing_tab()
+        
+        # Aba 4: Visualizações
         with tab4:
-            self.processing_tab()
-        with tab5:
-            self.analysis_tab()
+            self.visualizations_tab()
+        
+        # Aba 5: Equating de Escalas
+        # with tab5:
+        #     self.equating_tab()
+        
+        # Aba 6: Histórico
         with tab6:
-            self.reports_tab()
-        with tab7:
             self.history_tab()
+        
+        # Aba 7: Parâmetros Salvos
+        with tab7:
+            self.parameters_tab()
     
-    def sidebar(self):
-        """Configura a barra lateral"""
-        st.sidebar.title("⚙️ Configurações")
-        
-        # Upload de arquivo de parâmetros
-        st.sidebar.subheader("📋 Parâmetros dos Itens")
-        
-        param_source = st.sidebar.radio(
-            "Fonte dos parâmetros:",
-            ["Calibração Automática", "Arquivo Customizado"],
-            help="Escolha entre calibrar automaticamente ou usar arquivo existente"
-        )
-        
-        if param_source == "Arquivo Customizado":
-            params_file = st.sidebar.file_uploader(
-                "Carregar arquivo de parâmetros",
-                type=['csv', 'xlsx'],
-                help="Arquivo com parâmetros a, b, c dos itens"
-            )
-        else:
-            params_file = None
-            st.sidebar.info("ℹ️ Use a aba 'Calibração de Itens' para calibrar parâmetros")
-        
-        if params_file:
-            try:
-                if params_file.name.endswith('.csv'):
-                    try:
-                        params_df = pd.read_csv(params_file)
-                    except:
-                        # Tentar com ponto e vírgula
-                        params_file.seek(0)
-                        params_df = pd.read_csv(params_file, sep=';')
-                else:
-                    params_df = pd.read_excel(params_file)
-                st.session_state['params_df'] = params_df
-                st.sidebar.success(f"✅ Parâmetros carregados: {len(params_df)} itens")
-
-                # Persistir parâmetros carregados automaticamente
-                try:
-                    session = SessionLocal()
-                    # Garantir colunas esperadas
-                    required_cols = ['Questao','a','b','c']
-                    if all(col in params_df.columns for col in required_cols):
-                        param_set = crud.create_parameters_set(
-                            session,
-                            name=f"uploaded:{params_file.name}",
-                            is_anchor=False,
-                            params_df=params_df[required_cols]
-                        )
-                        st.session_state['parameters_set_id'] = param_set.id
-                        st.sidebar.info(f"💾 Parâmetros persistidos (id={param_set.id})")
-                    else:
-                        st.sidebar.warning("⚠️ Arquivo de parâmetros sem colunas obrigatórias: Questao,a,b,c")
-                except Exception as e:
-                    st.sidebar.warning(f"⚠️ Não foi possível persistir parâmetros: {e}")
-                finally:
-                    try:
-                        session.close()
-                    except Exception:
-                        pass
-            except Exception as e:
-                st.sidebar.error(f"❌ Erro ao carregar parâmetros: {e}")
-                st.sidebar.info("💡 Dica: Use vírgula (,) ou ponto e vírgula (;) como separador")
-        
-        # Configurações TRI
-        st.sidebar.subheader("🔧 Configurações TRI")
-        
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            default_a = st.number_input("a (discriminação)", value=1.0, step=0.1)
-            default_b = st.number_input("b (dificuldade)", value=0.0, step=0.1)
-        # with col2:
-            default_c = st.number_input("c (acerto casual)", value=0.2, min_value=0.0, max_value=1.0, step=0.01)
-            enem_base = st.number_input("Nota base ENEM", value=500, step=10)
-        
-        st.session_state['tri_config'] = {
-            'default_a': default_a,
-            'default_b': default_b,
-            'default_c': default_c,
-            'enem_base': enem_base
-        }
-        
-        # Informações do sistema
-        st.sidebar.subheader("ℹ️ Informações")
-        st.sidebar.info(f"""
-        **Sistema TRI v2.0**
-        
-        • Modelo: 3PL
-        • Editoras: {len(self.config['publishers'])}
-        • Séries: {len(self.config['grades'])}
-        • Disciplinas: {len(self.config['subjects'])}
-        """)
-    
-    def home_tab(self):
-        """Aba inicial"""
-        st.header("🏠 Bem-vindo ao Sistema TRI")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.markdown("""
-            ### 📚 Sobre o Sistema
-            
-            O **Sistema TRI** é uma ferramenta para análise de provas utilizando a 
-            **Teoria de Resposta ao Item (TRI)** no modelo de 3 parâmetros (3PL), seguindo 
-            os padrões utilizados no ENEM e SAEB.
-            
-            #### 🎯 Funcionalidades Principais:
-            
-            ✅ **Processamento de Dados**
-            - Suporte a arquivos CSV e Excel
-            - ETL automático para cartões de resposta
-            - Validação robusta de dados
-            
-            ✅ **Análise TRI**
-            - Estimação de proficiência (theta)
-            - Conversão para escala ENEM
-            - Parâmetros customizáveis
-            
-            ✅ **Visualizações**
-            - Gráficos interativos
-            - Relatórios completos
-            - Dashboards em tempo real
-            
-            ✅ **Relatórios**
-            - Estatísticas detalhadas
-            - Exportação em múltiplos formatos
-            - Análise de qualidade
-            """)
-        
-        with col2:            
-            st.markdown("### 🚀 Próximos Passos")
-            st.markdown("""
-            1. **Upload de Dados**: Carregue seus arquivos de respostas
-            2. **Configuração**: Ajuste os parâmetros TRI se necessário
-            3. **Processamento**: Execute a análise TRI
-            4. **Visualização**: Explore os resultados
-            5. **Relatórios**: Gere relatórios completos
-            """)
-    
-    def upload_tab(self):
+    def upload_data_tab(self):
         """Aba de upload de dados"""
         st.header("📁 Upload de Dados")
         
-        # Seleção do tipo de arquivo
-        file_type = st.radio(
-            "Tipo de arquivo:",
-            ["Excel (Cartão de Resposta)", "CSV"],
-            horizontal=True
-        )
-        
-        if file_type == "CSV":
-            self.upload_csv()
-        else:
-            self.upload_excel()
-    
-    def upload_csv(self):
-        """Upload de arquivo CSV"""
-        st.subheader("📄 Upload de Arquivo CSV")
-        
+        # Upload de arquivo de respostas
         uploaded_file = st.file_uploader(
-            "Selecione o arquivo CSV de respostas",
-            type=['csv'],
-            help="Arquivo deve conter colunas: CodPessoa, Questao, RespostaAluno, Gabarito"
+            "📄 Arquivo de Respostas dos Alunos",
+            type=['csv', 'xlsx'],
+            help="Suporte a CSV (separador ;) e Excel"
         )
         
         if uploaded_file is not None:
             try:
-                # Carregar dados
-                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
-                st.session_state['responses_df'] = df
-                # Persistir dataset
-                try:
-                    session = SessionLocal()
-                    dataset = crud.create_dataset(
-                        session,
-                        name=uploaded_file.name,
-                        source_type="csv",
-                        file_name=uploaded_file.name,
-                    )
-                    st.session_state['dataset_id'] = dataset.id
-                finally:
-                    session.close()
+                # Detectar tipo de arquivo
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
+                    st.success(f"✅ CSV carregado: {len(df)} linhas, {len(df.columns)} colunas")
+                elif uploaded_file.name.endswith('.xlsx'):
+                    # Processar Excel usando DataProcessor
+                    try:
+                        df = self.data_processor.load_responses_excel_from_streamlit(uploaded_file)
+                        st.success(f"✅ Excel processado: {len(df)} linhas, {len(df.columns)} colunas")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao processar Excel: {e}")
+                        st.info("💡 Verifique se o arquivo tem as abas 'Datos' e 'Matriz'")
+                        return
                 
                 # Mostrar preview
-                st.success(f"✅ Arquivo carregado com sucesso: {len(df)} registros")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("📊 Preview dos Dados")
-                    st.dataframe(df.head(10))
-                
-                with col2:
-                    st.subheader("📈 Estatísticas Básicas")
-                    
-                    # Métricas
-                    total_students = df['CodPessoa'].nunique()
-                    total_items = df['Questao'].nunique()
-                    total_responses = len(df)
-                    
-                    st.metric("Total de Estudantes", total_students)
-                    st.metric("Total de Itens", total_items)
-                    st.metric("Total de Respostas", total_responses)
-                    
-                    # Verificar completude
-                    expected_responses = total_students * total_items
-                    completeness = total_responses / expected_responses
-                    st.metric("Completude", f"{completeness:.1%}")
+                st.subheader("👀 Preview dos Dados")
+                st.dataframe(df.head(), use_container_width=True)
                 
                 # Validar dados
-                st.subheader("🔍 Validação dos Dados")
-                # Observação: validação por caminho é opcional no upload via Streamlit
-                validation = {"valid": True, "errors": [], "warnings": []}
+                st.info("🔍 Validando dados...")
                 
-                if validation['valid']:
-                    st.success("✅ Dados válidos para processamento")
+                # Mostrar estrutura do arquivo
+                st.write("**📋 Estrutura do arquivo:**")
+                st.write(f"- **Colunas disponíveis:** {list(df.columns)}")
+                st.write(f"- **Total de linhas:** {len(df)}")
+                st.write(f"- **Primeiras linhas:**")
+                st.dataframe(df.head(3), use_container_width=True)
+                
+                validation_result = self.data_processor.validate_data_quality(df)
+                if validation_result and len(validation_result) > 0:
+                    st.success("✅ Dados validados com sucesso!")
+                    
+                    # Mostrar métricas de qualidade
+                    with st.expander("📊 Métricas de Qualidade dos Dados"):
+                        if validation_result.get('format_type') == 'excel_cartao_resposta':
+                            # Formato Excel original
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Formato", "Excel Cartão Resposta")
+                                st.metric("Total de Alunos", validation_result.get('total_students', 0))
+                            with col2:
+                                st.metric("Total de Itens", validation_result.get('total_items', 0))
+                                st.metric("Completude", f"{validation_result.get('completeness', 0):.1%}")
+                            with col3:
+                                st.metric("Total de Respostas", validation_result.get('total_responses', 0))
+                                st.metric("Variedade de Respostas", validation_result.get('response_variety', 0))
+                            
+                            # Mostrar informações específicas do formato Excel
+                            if 'unique_responses' in validation_result:
+                                st.write("**🎯 Respostas possíveis:**", validation_result['unique_responses'])
+                        else:
+                            # Formato processado
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total de Alunos", validation_result.get('total_students', 0))
+                                st.metric("Total de Itens", validation_result.get('total_items', 0))
+                            with col2:
+                                st.metric("Completude", f"{validation_result.get('completeness', 0):.1%}")
+                                st.metric("Acertos Médios", f"{validation_result.get('mean_accuracy', 0):.1%}")
+                            with col3:
+                                st.metric("Total de Respostas", validation_result.get('total_responses', 0))
+                                st.metric("Alunos Incompletos", validation_result.get('incomplete_students', 0))
+                    
+                    st.session_state['uploaded_data'] = df
+                    st.session_state['uploaded_filename'] = uploaded_file.name
                 else:
-                    st.error("❌ Problemas encontrados nos dados")
-                    for error in validation['errors']:
-                        st.error(f"• {error}")
-                
-            except Exception as e:
-                st.error(f"❌ Erro ao carregar arquivo: {e}")
-    
-    def upload_excel(self):
-        """Upload de arquivo Excel"""
-        st.subheader("📊 Upload de Arquivo Excel")
-        
-        uploaded_file = st.file_uploader(
-            "Selecione o arquivo Excel de cartão de resposta",
-            type=['xlsx', 'xls'],
-            help="Arquivo deve conter abas 'Datos' e 'Matriz'"
-        )
-        
-        if uploaded_file is not None:
-            try:
-                # Carregar dados
-                df = self.data_processor.load_responses_excel_from_streamlit(uploaded_file)
-                st.session_state['responses_df'] = df
-                # Persistir dataset
-                try:
-                    session = SessionLocal()
-                    dataset = crud.create_dataset(
-                        session,
-                        name=uploaded_file.name,
-                        source_type="excel",
-                        file_name=uploaded_file.name,
-                    )
-                    st.session_state['dataset_id'] = dataset.id
-                finally:
-                    session.close()
-                
-                # Mostrar preview
-                st.success(f"✅ Arquivo processado com sucesso: {len(df)} registros")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.subheader("📊 Preview dos Dados")
-                    st.dataframe(df.head(10))
-                
-                with col2:
-                    st.subheader("📈 Estatísticas Básicas")
+                    st.error("❌ Dados não passaram na validação")
+                    st.info("💡 **Formato Excel esperado:**")
+                    st.info("   - Aba 'Datos' com colunas: CodPessoa, Ítem 1 ID 123, Ítem 2 ID 456, etc.")
+                    st.info("   - Aba 'Matriz' com gabarito dos itens")
+                    st.info("💡 **Formato alternativo:**")
+                    st.info("   - Colunas: CodPessoa, Questao, RespostaAluno, Gabarito")
+                    st.info("   - Uma linha por resposta (aluno + questão)")
                     
-                    # Métricas
-                    total_students = df['CodPessoa'].nunique()
-                    total_items = df['Questao'].nunique()
-                    total_responses = len(df)
-                    
-                    st.metric("Total de Estudantes", total_students)
-                    st.metric("Total de Itens", total_items)
-                    st.metric("Total de Respostas", total_responses)
-                    
-                    # Verificar completude
-                    expected_responses = total_students * total_items
-                    completeness = total_responses / expected_responses
-                    st.metric("Completude", f"{completeness:.1%}")
-                
-                # Qualidade dos dados
-                st.subheader("🔍 Qualidade dos Dados")
-                quality_metrics = self.data_processor.validate_data_quality(df)
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Média de Acertos", f"{quality_metrics.get('mean_accuracy', 0):.2f}")
-                with col2:
-                    st.metric("Desvio Padrão", f"{quality_metrics.get('std_accuracy', 0):.2f}")
-                with col3:
-                    st.metric("Estudantes Incompletos", quality_metrics.get('incomplete_students', 0))
-                with col4:
-                    st.metric("Completude", f"{quality_metrics.get('completeness', 0):.1%}")
-                
             except Exception as e:
                 st.error(f"❌ Erro ao processar arquivo: {e}")
     
-    def parameters_tab(self):
+    def calibration_tab(self):
         """Aba de parâmetros: subir âncoras ou selecionar conjuntos salvos"""
-        st.header("📋 Parâmetros dos Itens")
+        st.header("🔧 Calibração de Itens")
         
-        if 'responses_df' not in st.session_state:
-            st.warning("⚠️ Carregue dados primeiro na aba 'Upload de Dados'")
+        if 'uploaded_data' not in st.session_state:
+            st.warning("⚠️ Faça upload de dados primeiro na aba 'Upload de Dados'")
             return
         
-        responses_df = st.session_state['responses_df']
+        responses_df = st.session_state['uploaded_data']
         
         # Fonte dos parâmetros
         st.subheader("⚙️ Fonte dos Parâmetros")
@@ -567,27 +375,225 @@ class TRIDashboard:
         
         # Mostrar resultados se disponíveis
         if 'calibrated_params' in st.session_state:
-            st.subheader("📊 Resultados da Calibração")
-            self.show_calibration_results(st.session_state['calibrated_params'], show_validation=False)
-            # Botão para persistir parâmetros calibrados
-            with st.expander("💾 Persistir parâmetros calibrados no banco"):
-                param_set_name = st.text_input("Nome do conjunto de parâmetros", value="calibrados")
-                if st.button("Salvar parâmetros no banco"):
+            self.show_calibration_results(st.session_state['calibrated_params'])
+    
+    def tri_processing_tab(self):
+        """Aba de processamento TRI"""
+        st.header("📊 Processamento TRI")
+        
+        # Debug: verificar estado da sessão
+        # st.write(f"uploaded_data presente: {'uploaded_data' in st.session_state}")
+        # st.write(f"results_df presente: {'results_df' in st.session_state}")
+        # st.write(f"params_df presente: {'params_df' in st.session_state}")
+        # st.write(f"calibrated_params presente: {'calibrated_params' in st.session_state}")
+        
+        # Verificar se temos dados para processar
+        has_uploaded_data = 'uploaded_data' in st.session_state
+        has_results = 'results_df' in st.session_state
+        has_params = 'params_df' in st.session_state or 'calibrated_params' in st.session_state
+        
+        if not has_uploaded_data and not has_results:
+            st.warning("⚠️ Faça upload de dados primeiro na aba 'Upload de Dados' ou carregue resultados do histórico")
+            return
+        
+        if not has_params and not has_results:
+            st.warning("⚠️ Calibre itens ou carregue parâmetros primeiro na aba 'Calibração de Itens'")
+            return
+        
+        # Mostrar informações sobre dados carregados
+        if has_results:
+            results_df = st.session_state['results_df']
+            execution_info = ""
+            if 'current_execution_id' in st.session_state:
+                execution_info = f" (Execução #{st.session_state['current_execution_id']})"
+            if 'current_execution_name' in st.session_state:
+                execution_info = f" ({st.session_state['current_execution_name']})"
+            
+            st.success(f"✅ Visualizando resultados carregados: {len(results_df)} alunos{execution_info}")
+            
+            # Debug: mostrar informações dos dados
+            # st.write(f"Colunas disponíveis: {list(results_df.columns)}")
+            # st.write(f"Tamanho do DataFrame: {results_df.shape}")
+            # st.write(f"Primeira linha: {results_df.iloc[0].to_dict()}")
+            
+            # Mostrar resultados
+            self.show_tri_results(results_df)
+            return
+        
+        responses_df = st.session_state['uploaded_data']
+        
+        # Selecionar parâmetros
+        if 'params_df' in st.session_state:
+            params_df = st.session_state['params_df']
+            st.success("✅ Usando parâmetros carregados")
+        elif 'calibrated_params' in st.session_state:
+            params_df = st.session_state['calibrated_params']
+            st.success("✅ Usando parâmetros calibrados")
+        
+        # Mostrar parâmetros
+        st.subheader("📋 Parâmetros dos Itens")
+        st.dataframe(params_df, use_container_width=True)
+        
+        # Processar TRI
+        if st.button("🚀 Executar Processamento TRI", type="primary"):
+            with st.spinner("Processando respostas com TRI..."):
+                try:
+                    # Processar respostas
+                    results_df = self.tri_engine.process_responses(responses_df, params_df)
+                    
+                    # Salvar resultados
+                    st.session_state['results_df'] = results_df
+                    
+                    # Persistir no banco
                     try:
                         session = SessionLocal()
-                        param_set = crud.create_parameters_set(
-                            session,
-                            name=param_set_name,
-                            is_anchor=False,
-                            params_df=st.session_state['calibrated_params']
+                        
+                        # Criar dataset
+                        dataset = crud.create_dataset(
+                            session, 
+                            name=st.session_state.get('uploaded_filename', 'Dataset'),
+                            source_type='csv',
+                            file_name=st.session_state.get('uploaded_filename', 'unknown.csv')
                         )
-                        st.success(f"✅ Parâmetros salvos (id={param_set.id})")
-                        st.session_state['parameters_set_id'] = param_set.id
+                        
+                        # Criar execução
+                        execution = crud.create_execution(
+                            session,
+                            dataset_id=dataset.id,
+                            parameters_set_id=st.session_state.get('parameters_set_id'),
+                            status='completed'
+                        )
+                        
+                        # Salvar resultados
+                        crud.bulk_insert_results(session, execution.id, results_df)
+                        
+                        st.success(f"✅ Processamento concluído! {len(results_df)} alunos processados")
+                        st.info(f"🔎 Resultados armazenados no banco para execução id={execution.id}")
+                        
                     except Exception as e:
-                        st.error(f"❌ Erro ao salvar parâmetros: {e}")
+                        st.error(f"❌ Erro ao salvar no banco: {e}")
                     finally:
                         session.close()
+                    
+                    # Mostrar resultados
+                    self.show_tri_results(results_df)
+                    
+                except Exception as e:
+                    st.error(f"❌ Erro no processamento TRI: {e}")
+        
+        # Mostrar resultados se disponíveis (apenas se não foram processados agora)
+        if 'results_df' in st.session_state and not has_results:
+            self.show_tri_results(st.session_state['results_df'])
     
+    def visualizations_tab(self):
+        """Aba de análise e visualizações"""
+        st.header("📈 Visualizações e Análises")
+        
+        # Debug: verificar estado da sessão
+        # st.write(f"results_df presente: {'results_df' in st.session_state}")
+        # st.write(f"current_execution_id presente: {'current_execution_id' in st.session_state}")
+        # st.write(f"current_execution_name presente: {'current_execution_name' in st.session_state}")
+        
+        # Verificar se temos resultados para visualizar
+        if 'results_df' not in st.session_state:
+            st.warning("⚠️ Execute o processamento TRI primeiro ou carregue resultados do histórico")
+            return
+        
+        results_df = st.session_state['results_df']
+        
+        # Mostrar informações sobre dados carregados
+        execution_info = ""
+        if 'current_execution_id' in st.session_state:
+            execution_info = f" (Execução #{st.session_state['current_execution_id']})"
+        if 'current_execution_name' in st.session_state:
+            execution_info = f" ({st.session_state['current_execution_name']})"
+        
+        st.success(f"✅ Visualizando resultados: {len(results_df)} alunos{execution_info}")
+        
+        # Debug: mostrar informações dos dados
+        # st.write(f"Colunas disponíveis: {list(results_df.columns)}")
+        # st.write(f"Tamanho do DataFrame: {results_df.shape}")
+        # st.write(f"Primeira linha: {results_df.iloc[0].to_dict()}")
+        
+        # Estatísticas básicas
+        st.subheader("📊 Estatísticas Descritivas")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total de Alunos", len(results_df))
+        
+        with col2:
+            theta_mean = results_df['theta'].mean()
+            st.metric("Theta Médio", f"{theta_mean:.3f}")
+        
+        with col3:
+            enem_mean = results_df['enem_score'].mean()
+            st.metric("Nota ENEM Média", f"{enem_mean:.1f}")
+        
+        with col4:
+            theta_std = results_df['theta'].std()
+            st.metric("Desvio Padrão Theta", f"{theta_std:.3f}")
+        
+        # Gráficos
+        st.subheader("📈 Gráficos")
+        
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            # Distribuição de Theta
+            fig_theta = px.histogram(
+                results_df, 
+                x='theta',
+                title="Distribuição de Theta",
+                nbins=20
+            )
+            st.plotly_chart(fig_theta, use_container_width=True)
+        
+        with col_chart2:
+            # Distribuição de Notas ENEM
+            fig_enem = px.histogram(
+                results_df, 
+                x='enem_score',
+                title="Distribuição de Notas ENEM",
+                nbins=20
+            )
+            st.plotly_chart(fig_enem, use_container_width=True)
+        
+        # Scatter plot Theta vs ENEM
+        try:
+            fig_scatter = px.scatter(
+                results_df,
+                x='theta',
+                y='enem_score',
+                title="Correlação: Theta vs Nota ENEM",
+                trendline="ols"
+            )
+        except ImportError:
+            # Fallback sem trendline se statsmodels não estiver disponível
+            fig_scatter = px.scatter(
+                results_df,
+                x='theta',
+                y='enem_score',
+                title="Correlação: Theta vs Nota ENEM"
+            )
+            st.info("ℹ️ Linha de tendência não disponível (statsmodels não instalado)")
+        
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        # Tabela de resultados
+        st.subheader("📋 Tabela de Resultados")
+        st.dataframe(results_df, use_container_width=True)
+        
+        # Download dos resultados
+        csv_data = results_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Resultados (CSV)",
+            data=csv_data,
+            file_name=f"resultados_tri_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
     def show_calibration_results(self, calibrated_params, validation=None, show_validation=True):
         """Mostra resultados da calibração"""
         # Estatísticas básicas
@@ -648,178 +654,34 @@ class TRIDashboard:
                 for warning in validation['warnings']:
                     st.warning(f"• {warning}")
     
-    def processing_tab(self):
-        """Aba de processamento TRI"""
-        st.header("⚙️ Processamento TRI")
-        
-        if 'responses_df' not in st.session_state:
-            st.warning("⚠️ Carregue dados primeiro na aba 'Upload de Dados'")
-            return
-        
-        responses_df = st.session_state['responses_df']
-        
-        # Configurações de processamento
-        st.subheader("🔧 Configurações")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            use_custom_params = st.checkbox("Usar parâmetros customizados")
-            if use_custom_params and ('params_df' in st.session_state or 'calibrated_params' in st.session_state):
-                if 'calibrated_params' in st.session_state:
-                    st.success("✅ Parâmetros calibrados disponíveis")
-                else:
-                    st.success("✅ Parâmetros customizados disponíveis")
-            elif use_custom_params:
-                st.warning("⚠️ Calibre parâmetros ou carregue arquivo customizado")
-                use_custom_params = False
-        
-        with col2:
-            show_progress = st.checkbox("Mostrar progresso detalhado", value=True)
-        
-        # Botão de processamento
-        if st.button("🚀 Processar TRI", type="primary"):
-            with st.spinner("Processando TRI..."):
-                try:
-                    # Configurar parâmetros
-                    params_df = None
-                    if use_custom_params:
-                        if 'calibrated_params' in st.session_state:
-                            params_df = st.session_state['calibrated_params']
-                        elif 'params_df' in st.session_state:
-                            params_df = st.session_state['params_df']
-                    
-                    # Processar TRI
-                    results_df = self.tri_engine.process_responses(responses_df, params_df)
-                    st.session_state['results_df'] = results_df
-                    
-                    # Persistir execução e resultados
-                    try:
-                        session = SessionLocal()
-                        dataset_id = st.session_state.get('dataset_id')
-                        parameters_set_id = None
-                        if use_custom_params:
-                            parameters_set_id = st.session_state.get('parameters_set_id')
-                            # Se ainda não persistiu params, criar conjunto agora
-                            if parameters_set_id is None and params_df is not None:
-                                try:
-                                    session_params = SessionLocal()
-                                    required_cols = ['Questao','a','b','c']
-                                    pdf = params_df[required_cols] if all(col in params_df.columns for col in required_cols) else params_df
-                                    pset = crud.create_parameters_set(
-                                        session_params,
-                                        name=f"processing:{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}",
-                                        is_anchor=False,
-                                        params_df=pdf
-                                    )
-                                    parameters_set_id = pset.id
-                                    st.session_state['parameters_set_id'] = pset.id
-                                except Exception as e:
-                                    st.warning(f"⚠️ Não foi possível persistir parâmetros antes da execução: {e}")
-                                finally:
-                                    try:
-                                        session_params.close()
-                                    except Exception:
-                                        pass
-                        execution = crud.create_execution(
-                            session,
-                            dataset_id=dataset_id,
-                            parameters_set_id=parameters_set_id,
-                            status="completed"
-                        )
-                        crud.bulk_insert_results(session, execution.id, results_df)
-                        st.session_state['execution_id'] = execution.id
-                        st.info(f"💾 Execução salva no banco (id={execution.id})")
-                    except Exception as e:
-                        st.warning(f"⚠️ Não foi possível persistir resultados: {e}")
-                    finally:
-                        try:
-                            session.close()
-                        except Exception:
-                            pass
-                    
-                    st.success("✅ Processamento TRI concluído!")
-                    
-                except Exception as e:
-                    st.error(f"❌ Erro no processamento: {e}")
-        
-        # Mostrar resultados se disponíveis
-        if 'results_df' in st.session_state:
-            st.subheader("📊 Resultados do Processamento")
-            self.show_processing_results(st.session_state['results_df'])
-    
-    def show_processing_results(self, results_df):
+    def show_tri_results(self, results_df):
         """Mostra resultados do processamento"""
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total de Estudantes", len(results_df))
         with col2:
-            st.metric("Theta Médio", f"{results_df['theta'].mean():.3f}")
+            theta_mean = results_df['theta'].mean()
+            st.metric("Theta Médio", f"{theta_mean:.3f}")
         with col3:
-            st.metric("Nota ENEM Média", f"{results_df['enem_score'].mean():.1f}")
+            enem_mean = results_df['enem_score'].mean()
+            st.metric("Nota ENEM Média", f"{enem_mean:.1f}")
         with col4:
-            st.metric("Desvio Padrão Theta", f"{results_df['theta'].std():.3f}")
+            theta_std = results_df['theta'].std()
+            st.metric("Desvio Padrão Theta", f"{theta_std:.3f}")
         
         col1, col2 = st.columns(2)
         with col1:
             fig_theta = px.histogram(results_df, x='theta', nbins=30, 
-                                   title="Distribuição de Theta")
+                                    title="Distribuição de Theta")
             st.plotly_chart(fig_theta, use_container_width=True, key=self.get_unique_key("hist_theta_processing"))
         with col2:
             fig_enem = px.histogram(results_df, x='enem_score', nbins=30,
-                                  title="Distribuição de Notas ENEM")
+                                   title="Distribuição de Notas ENEM")
             st.plotly_chart(fig_enem, use_container_width=True, key=self.get_unique_key("hist_enem_processing"))
         
-        st.subheader("📋 Resultados Detalhados")
-        st.dataframe(results_df.head(20))
+        # Estatísticas detalhadas
+        st.subheader("📊 Estatísticas Detalhadas")
         
-        csv = results_df.to_csv(index=False)
-        st.download_button(
-            label="📥 Download dos Resultados (CSV)",
-            data=csv,
-            file_name="resultados_tri.csv",
-            mime="text/csv"
-        )
-        
-        exec_id = st.session_state.get('execution_id')
-        if exec_id:
-            st.info(f"🔎 Resultados armazenados no banco para execução id={exec_id}")
-    
-    def analysis_tab(self):
-        """Aba de análise e visualizações"""
-        st.header("📈 Análise e Visualizações")
-        
-        if 'results_df' not in st.session_state:
-            st.warning("⚠️ Processe dados TRI primeiro na aba 'Processamento TRI'")
-            return
-        
-        results_df = st.session_state['results_df']
-        responses_df = st.session_state.get('responses_df')
-        params_df = st.session_state.get('params_df')
-        
-        # Seleção de análises
-        analysis_type = st.selectbox(
-            "Tipo de Análise:",
-            ["Distribuições", "Correlações", "Parâmetros dos Itens", "Análise Comparativa"]
-        )
-        
-        if analysis_type == "Distribuições":
-            self.show_distributions_analysis(results_df)
-        elif analysis_type == "Correlações":
-            self.show_correlations_analysis(results_df, responses_df)
-        elif analysis_type == "Parâmetros dos Itens":
-            if params_df is not None:
-                self.show_item_parameters_analysis(params_df)
-            else:
-                st.warning("⚠️ Carregue parâmetros dos itens para esta análise")
-        elif analysis_type == "Análise Comparativa":
-            self.show_comparative_analysis(results_df)
-    
-    def show_distributions_analysis(self, results_df):
-        """Mostra análise de distribuições"""
-        st.subheader("📊 Análise de Distribuições")
-        
-        # Estatísticas descritivas
         col1, col2 = st.columns(2)
         
         with col1:
@@ -832,7 +694,9 @@ class TRIDashboard:
             enem_stats = results_df['enem_score'].describe()
             st.dataframe(enem_stats)
         
-        # Gráficos de distribuição
+        # Gráficos adicionais
+        st.subheader("📈 Gráficos Adicionais")
+        
         col1, col2 = st.columns(2)
         
         with col1:
@@ -845,105 +709,64 @@ class TRIDashboard:
             fig_box_enem = px.box(results_df, y='enem_score', title="Boxplot de Notas ENEM")
             st.plotly_chart(fig_box_enem, use_container_width=True, key=self.get_unique_key("box_enem_dist"))
         
-        # Distribuição cumulativa
+        # Gráfico de distribuição cumulativa
+        st.subheader("📈 Distribuição Cumulativa")
+        
         fig_cumulative = go.Figure()
         
         # Theta
         sorted_theta = np.sort(results_df['theta'])
         y_theta = np.arange(1, len(sorted_theta) + 1) / len(sorted_theta)
         fig_cumulative.add_trace(go.Scatter(x=sorted_theta, y=y_theta, 
-                                          name='Theta', mode='lines'))
+                                           name='Theta', mode='lines'))
         
         # ENEM
         sorted_enem = np.sort(results_df['enem_score'])
         y_enem = np.arange(1, len(sorted_enem) + 1) / len(sorted_enem)
         fig_cumulative.add_trace(go.Scatter(x=sorted_enem, y=y_enem, 
-                                          name='ENEM Score', mode='lines'))
+                                           name='ENEM', mode='lines'))
         
-        fig_cumulative.update_layout(title="Distribuição Cumulativa", 
-                                   xaxis_title="Valor", yaxis_title="Probabilidade")
+        fig_cumulative.update_layout(
+            title="Distribuição Cumulativa",
+            xaxis_title="Valor",
+            yaxis_title="Probabilidade Cumulativa"
+        )
+        
         st.plotly_chart(fig_cumulative, use_container_width=True, key=self.get_unique_key("cumulative_dist"))
-    
-    def show_correlations_analysis(self, results_df, responses_df):
-        """Mostra análise de correlações"""
-        st.subheader("🔗 Análise de Correlações")
         
-        if responses_df is not None and 'acertos' in results_df.columns:
-            # Correlação theta vs acertos
-            correlation = results_df['acertos'].corr(results_df['theta'])
+        # Análises de correlação
+        if 'uploaded_data' in st.session_state:
+            responses_df = st.session_state['uploaded_data']
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric("Correlação Theta-Acertos", f"{correlation:.3f}")
+            if responses_df is not None and 'acertos' in results_df.columns:
+                # Correlação theta vs acertos
+                correlation = results_df['acertos'].corr(results_df['theta'])
                 
-                # Scatter plot
-                fig_scatter = px.scatter(results_df, x='acertos', y='theta',
-                                       title=f"Theta vs Acertos (r = {correlation:.3f})")
-                st.plotly_chart(fig_scatter, use_container_width=True, key=self.get_unique_key("scatter_theta_acertos"))
-            
-            with col2:
-                # Correlação theta vs ENEM
-                corr_theta_enem = results_df['theta'].corr(results_df['enem_score'])
-                st.metric("Correlação Theta-ENEM", f"{corr_theta_enem:.3f}")
+                col1, col2 = st.columns(2)
                 
-                # Scatter plot
-                fig_scatter2 = px.scatter(results_df, x='theta', y='enem_score',
-                                        title=f"Theta vs ENEM (r = {corr_theta_enem:.3f})")
-                st.plotly_chart(fig_scatter2, use_container_width=True, key=self.get_unique_key("scatter_theta_enem"))
-        else:
-            st.warning("⚠️ Dados de acertos não disponíveis para análise de correlação")
-    
-    def show_item_parameters_analysis(self, params_df):
-        """Mostra análise dos parâmetros dos itens"""
-        st.subheader("📋 Análise dos Parâmetros dos Itens")
-        
-        # Estatísticas dos parâmetros
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.subheader("Parâmetro a (Discriminação)")
-            st.dataframe(params_df['a'].describe())
-        
-        with col2:
-            st.subheader("Parâmetro b (Dificuldade)")
-            st.dataframe(params_df['b'].describe())
-        
-        with col3:
-            st.subheader("Parâmetro c (Acerto Casual)")
-            st.dataframe(params_df['c'].describe())
-        
-        # Gráficos dos parâmetros
-        fig_params = make_subplots(rows=2, cols=2, 
-                                  subplot_titles=('Parâmetro a', 'Parâmetro b', 
-                                                'Parâmetro c', 'Distribuição'))
-        
-        # Parâmetro a
-        fig_params.add_trace(go.Scatter(x=params_df.index, y=params_df['a'], 
-                                       mode='lines+markers', name='a'), row=1, col=1)
-        
-        # Parâmetro b
-        fig_params.add_trace(go.Scatter(x=params_df.index, y=params_df['b'], 
-                                       mode='lines+markers', name='b'), row=1, col=2)
-        
-        # Parâmetro c
-        fig_params.add_trace(go.Scatter(x=params_df.index, y=params_df['c'], 
-                                       mode='lines+markers', name='c'), row=2, col=1)
-        
-        # Histograma
-        fig_params.add_trace(go.Histogram(x=params_df['a'], name='a'), row=2, col=2)
-        fig_params.add_trace(go.Histogram(x=params_df['b'], name='b'), row=2, col=2)
-        fig_params.add_trace(go.Histogram(x=params_df['c'], name='c'), row=2, col=2)
-        
-        fig_params.update_layout(height=600, title_text="Análise dos Parâmetros dos Itens")
-        st.plotly_chart(fig_params, use_container_width=True, key=self.get_unique_key("item_params_analysis"))
-    
-    def show_comparative_analysis(self, results_df):
-        """Mostra análise comparativa"""
-        st.subheader("📊 Análise Comparativa")
+                with col1:
+                    st.subheader("🎯 Correlação Theta vs Acertos")
+                    st.metric("Correlação", f"{correlation:.3f}")
+                    
+                    # Scatter plot
+                    fig_scatter = px.scatter(results_df, x='acertos', y='theta',
+                                            title=f"Theta vs Acertos (r = {correlation:.3f})")
+                    st.plotly_chart(fig_scatter, use_container_width=True, key=self.get_unique_key("scatter_theta_acertos"))
+                
+                with col2:
+                    # Correlação theta vs ENEM
+                    corr_theta_enem = results_df['theta'].corr(results_df['enem_score'])
+                    st.metric("Correlação Theta-ENEM", f"{corr_theta_enem:.3f}")
+                    
+                    # Scatter plot
+                    fig_scatter2 = px.scatter(results_df, x='theta', y='enem_score',
+                                             title=f"Theta vs ENEM (r = {corr_theta_enem:.3f})")
+                    st.plotly_chart(fig_scatter2, use_container_width=True, key=self.get_unique_key("scatter_theta_enem"))
         
         # Percentis
-        percentiles = [10, 25, 50, 75, 90]
+        st.subheader("📊 Percentis")
+        
+        percentiles = [5, 10, 25, 50, 75, 90, 95]
         
         col1, col2 = st.columns(2)
         
@@ -952,85 +775,27 @@ class TRIDashboard:
             theta_percentiles = [np.percentile(results_df['theta'], p) for p in percentiles]
             percentiles_df = pd.DataFrame({
                 'Percentil': [f'P{p}' for p in percentiles],
-                'Theta': theta_percentiles
+                'Valor': theta_percentiles
             })
-            st.dataframe(percentiles_df)
+            st.dataframe(percentiles_df, use_container_width=True)
         
         with col2:
             st.subheader("Percentis de Nota ENEM")
             enem_percentiles = [np.percentile(results_df['enem_score'], p) for p in percentiles]
             percentiles_df = pd.DataFrame({
                 'Percentil': [f'P{p}' for p in percentiles],
-                'ENEM Score': enem_percentiles
+                'Valor': enem_percentiles
             })
-            st.dataframe(percentiles_df)
+            st.dataframe(percentiles_df, use_container_width=True)
         
-        # Gráfico de percentis
-        fig_percentiles = go.Figure()
+        # Gráfico completo
+        st.subheader("📊 Dashboard Completo")
         
-        fig_percentiles.add_trace(go.Scatter(x=percentiles, y=theta_percentiles, 
-                                           mode='lines+markers', name='Theta'))
-        fig_percentiles.add_trace(go.Scatter(x=percentiles, y=enem_percentiles, 
-                                           mode='lines+markers', name='ENEM Score'))
-        
-        fig_percentiles.update_layout(title="Distribuição por Percentis",
-                                    xaxis_title="Percentil", yaxis_title="Valor")
-        st.plotly_chart(fig_percentiles, use_container_width=True, key=self.get_unique_key("percentiles_comparative"))
-    
-    def reports_tab(self):
-        """Aba de relatórios"""
-        st.header("📋 Relatórios")
-        
-        if 'results_df' not in st.session_state:
-            st.warning("⚠️ Processe dados TRI primeiro para gerar relatórios")
-            return
-        
-        results_df = st.session_state['results_df']
-        responses_df = st.session_state.get('responses_df')
-        params_df = st.session_state.get('params_df')
-        
-        # Tipos de relatório
-        report_type = st.selectbox(
-            "Tipo de Relatório:",
-            ["Relatório Completo", "Resumo Estatístico", "Relatório de Qualidade"]
-        )
-        
-        if st.button("📊 Gerar Relatório", type="primary"):
-            with st.spinner("Gerando relatório..."):
-                try:
-                    if report_type == "Relatório Completo":
-                        self.generate_complete_report(results_df, responses_df, params_df)
-                    elif report_type == "Resumo Estatístico":
-                        self.generate_summary_report(results_df, responses_df)
-                    elif report_type == "Relatório de Qualidade":
-                        self.generate_quality_report(results_df, responses_df)
-                    
-                    st.success("✅ Relatório gerado com sucesso!")
-                    
-                except Exception as e:
-                    st.error(f"❌ Erro ao gerar relatório: {e}")
-    
-    def generate_complete_report(self, results_df, responses_df, params_df):
-        """Gera relatório completo"""
-        st.subheader("📊 Relatório Completo")
-        
-        # Estatísticas gerais
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total de Estudantes", len(results_df))
-        with col2:
-            st.metric("Theta Médio", f"{results_df['theta'].mean():.3f}")
-        with col3:
-            st.metric("Nota ENEM Média", f"{results_df['enem_score'].mean():.1f}")
-        with col4:
-            st.metric("Desvio Padrão", f"{results_df['theta'].std():.3f}")
-        
-        # Gráficos completos
         fig_complete = make_subplots(
             rows=2, cols=2,
-            subplot_titles=('Distribuição de Theta', 'Distribuição de Notas ENEM',
-                          'Theta vs Acertos', 'Parâmetros dos Itens')
+            subplot_titles=('Distribuição de Theta', 'Distribuição de ENEM', 'Theta vs Acertos', 'Theta vs ENEM'),
+            specs=[[{"type": "histogram"}, {"type": "histogram"}],
+                   [{"type": "scatter"}, {"type": "scatter"}]]
         )
         
         # Distribuição de theta
@@ -1042,22 +807,28 @@ class TRIDashboard:
         # Theta vs acertos
         if 'acertos' in results_df.columns:
             fig_complete.add_trace(go.Scatter(x=results_df['acertos'], y=results_df['theta'],
-                                            mode='markers'), row=2, col=1)
+                                             mode='markers'), row=2, col=1)
         
-        # Parâmetros dos itens
-        if params_df is not None:
-            fig_complete.add_trace(go.Scatter(x=params_df.index, y=params_df['a'],
-                                            mode='lines+markers', name='a'), row=2, col=2)
+        # Theta vs ENEM
+        fig_complete.add_trace(go.Scatter(x=results_df['theta'], y=results_df['enem_score'],
+                                         mode='markers'), row=2, col=2)
         
-        fig_complete.update_layout(height=800, title_text="Relatório Completo - Sistema TRI")
-        st.plotly_chart(fig_complete, use_container_width=True, key=self.get_unique_key("complete_report"))
-    
-    def generate_summary_report(self, results_df, responses_df):
-        """Gera relatório resumido"""
-        st.subheader("📋 Resumo Estatístico")
+        fig_complete.update_layout(height=800, title_text="Dashboard Completo de Resultados")
+        st.plotly_chart(fig_complete, use_container_width=True, key=self.get_unique_key("complete_dashboard"))
         
-        # Estatísticas detalhadas
-        stats = self.visualizer.create_summary_statistics(results_df, responses_df)
+        # Estatísticas resumidas
+        st.subheader("📊 Resumo Estatístico")
+        
+        stats = {
+            'theta_mean': results_df['theta'].mean(),
+            'theta_std': results_df['theta'].std(),
+            'theta_min': results_df['theta'].min(),
+            'theta_max': results_df['theta'].max(),
+            'enem_mean': results_df['enem_score'].mean(),
+            'enem_std': results_df['enem_score'].std(),
+            'enem_min': results_df['enem_score'].min(),
+            'enem_max': results_df['enem_score'].max()
+        }
         
         col1, col2 = st.columns(2)
         
@@ -1077,64 +848,159 @@ class TRIDashboard:
             st.metric("Mínimo", f"{stats.get('enem_min', 0):.0f}")
             st.metric("Máximo", f"{stats.get('enem_max', 0):.0f}")
         
-        # Percentis
-        st.subheader("📊 Percentis")
-        percentiles = [5, 10, 25, 50, 75, 90, 95]
+        # Percentis detalhados
+        st.subheader("📊 Percentis Detalhados")
         
-        theta_percentiles = [np.percentile(results_df['theta'], p) for p in percentiles]
-        enem_percentiles = [np.percentile(results_df['enem_score'], p) for p in percentiles]
-        
-        percentiles_df = pd.DataFrame({
-            'Percentil': [f'P{p}' for p in percentiles],
-            'Theta': theta_percentiles,
-            'ENEM Score': enem_percentiles
-        })
-        
-        st.dataframe(percentiles_df)
-    
-    def generate_quality_report(self, results_df, responses_df):
-        """Gera relatório de qualidade"""
-        st.subheader("🔍 Relatório de Qualidade")
-        
-        # Validação dos resultados
-        validation = self.validator.validate_results(results_df, responses_df)
+        percentiles = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 99]
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("✅ Validação")
-            if validation['valid']:
-                st.success("Resultados válidos")
-            else:
-                st.error("Problemas encontrados")
-                for error in validation['errors']:
-                    st.error(f"• {error}")
+            st.subheader("Percentis de Theta")
+            theta_percentiles = [np.percentile(results_df['theta'], p) for p in percentiles]
+            percentiles_df = pd.DataFrame({
+                'Percentil': [f'P{p}' for p in percentiles],
+                'Valor': theta_percentiles
+            })
+            st.dataframe(percentiles_df, use_container_width=True)
         
         with col2:
-            st.subheader("⚠️ Avisos")
-            if validation['warnings']:
-                for warning in validation['warnings']:
-                    st.warning(f"• {warning}")
-            else:
-                st.success("Nenhum aviso")
+            st.subheader("Percentis de Nota ENEM")
+            enem_percentiles = [np.percentile(results_df['enem_score'], p) for p in percentiles]
+            percentiles_df = pd.DataFrame({
+                'Percentil': [f'P{p}' for p in percentiles],
+                'Valor': enem_percentiles
+            })
+            st.dataframe(percentiles_df, use_container_width=True)
+
+    def equating_tab(self):
+        """Aba de equating de escalas"""
+        st.header("🔄 Equating de Escalas")
         
-        # Métricas de qualidade
-        if responses_df is not None:
-            quality_metrics = self.data_processor.validate_data_quality(responses_df)
-            
-            st.subheader("📊 Métricas de Qualidade")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Completude", f"{quality_metrics.get('completeness', 0):.1%}")
-            with col2:
-                st.metric("Média de Acertos", f"{quality_metrics.get('mean_accuracy', 0):.2f}")
-            with col3:
-                st.metric("Estudantes Incompletos", quality_metrics.get('incomplete_students', 0))
-            with col4:
-                st.metric("Total de Respostas", quality_metrics.get('total_responses', 0))
+        if 'results_df' not in st.session_state:
+            st.warning("⚠️ Processe dados TRI primeiro para realizar equating.")
+            return
+        
+        results_df = st.session_state['results_df']
+        
+        # Seleção de método de equating
+        equating_method = st.selectbox(
+            "Método de Equating:",
+            ["Equating de Escalas", "Equating de Escalas de Razão", "Equating de Escalas de Razão de Razão"]
+        )
+        
+        if st.button("🚀 Executar Equating"):
+            with st.spinner("Executando equating..."):
+                try:
+                    # Processar equating
+                    equated_results_df = self.tri_engine.equate_scales(results_df, equating_method)
+                    
+                    # Salvar resultados
+                    st.session_state['equated_results_df'] = equated_results_df
+                    
+                    # Persistir no banco
+                    try:
+                        session = SessionLocal()
+                        dataset_id = st.session_state.get('dataset_id') # Assuming dataset_id is set elsewhere or needs to be passed
+                        execution = crud.create_execution(
+                            session,
+                            dataset_id=dataset_id,
+                            parameters_set_id=st.session_state.get('parameters_set_id'),
+                            status='completed'
+                        )
+                        crud.bulk_insert_results(session, execution.id, equated_results_df)
+                        st.session_state['equated_execution_id'] = execution.id
+                        st.info(f"💾 Equating salvo no banco (id={execution.id})")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao salvar equating no banco: {e}")
+                    finally:
+                        session.close()
+                    
+                    # Mostrar resultados
+                    self.show_equating_results(equated_results_df)
+                    
+                except Exception as e:
+                    st.error(f"❌ Erro no equating: {e}")
+        
+        # Mostrar resultados se disponíveis
+        if 'equated_results_df' in st.session_state:
+            self.show_equating_results(st.session_state['equated_results_df'])
     
+    def show_equating_results(self, equated_results_df):
+        """Mostra resultados do equating"""
+        st.subheader("📊 Resultados do Equating")
+        
+        # Estatísticas gerais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total de Estudantes", len(equated_results_df))
+        with col2:
+            theta_mean = equated_results_df['theta'].mean()
+            st.metric("Theta Médio", f"{theta_mean:.3f}")
+        with col3:
+            enem_mean = equated_results_df['enem_score'].mean()
+            st.metric("Nota ENEM Média", f"{enem_mean:.1f}")
+        with col4:
+            theta_std = equated_results_df['theta'].std()
+            st.metric("Desvio Padrão Theta", f"{theta_std:.3f}")
+        
+        # Gráficos
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Distribuição de Theta
+            fig_theta = px.histogram(
+                equated_results_df, 
+                x='Theta',
+                title="Distribuição de Theta (Equated)",
+                nbins=20
+            )
+            st.plotly_chart(fig_theta, use_container_width=True)
+        
+        with col2:
+            # Distribuição de Notas ENEM
+            fig_enem = px.histogram(
+                equated_results_df, 
+                x='enem_score',
+                title="Distribuição de Notas ENEM (Equated)",
+                nbins=20
+            )
+            st.plotly_chart(fig_enem, use_container_width=True)
+        
+        # Scatter plot Theta vs ENEM
+        try:
+            fig_scatter = px.scatter(
+                equated_results_df,
+                x='theta',
+                y='enem_score',
+                title="Correlação: Theta vs Nota ENEM (Equated)",
+                trendline="ols"
+            )
+        except ImportError:
+            # Fallback sem trendline se statsmodels não estiver disponível
+            fig_scatter = px.scatter(
+                equated_results_df,
+                x='theta',
+                y='enem_score',
+                title="Correlação: Theta vs Nota ENEM (Equated)"
+            )
+            st.info("ℹ️ Linha de tendência não disponível (statsmodels não instalado)")
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        # Tabela de resultados
+        st.subheader("📋 Tabela de Resultados Equatados")
+        st.dataframe(equated_results_df, use_container_width=True)
+        
+        # Download dos resultados
+        csv_data = equated_results_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Resultados Equatados (CSV)",
+            data=csv_data,
+            file_name=f"resultados_equatados_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
     def history_tab(self):
         """Aba de histórico de resultados (via banco)"""
         st.header("💾 Histórico de Resultados (Banco)")
@@ -1149,7 +1015,46 @@ class TRIDashboard:
             return
         
         for exec_info in executions:
-            with st.expander(f"📊 Execução #{exec_info['execution_id']} - {str(exec_info['created_at'])[:19]}"):
+            # Usar o nome personalizado se disponível, senão usar o padrão
+            display_name = exec_info['name'] or f"Execução {exec_info['id']}"
+            
+            # Verificar se esta execução está carregada
+            is_currently_loaded = (
+                'current_execution_id' in st.session_state and 
+                st.session_state['current_execution_id'] == exec_info['id']
+            )
+            
+            expander_title = f"📊 {display_name} - {str(exec_info['created_at'])[:19]}"
+            if is_currently_loaded:
+                expander_title += " 🟢 CARREGADA"
+            
+            with st.expander(expander_title):
+                # Interface para renomear execução
+                st.subheader("✏️ Renomear Execução")
+                col_name1, col_name2 = st.columns([3, 1])
+                
+                with col_name1:
+                    new_name = st.text_input(
+                        f"Nome da Execução #{exec_info['id']}:",
+                        value=exec_info['name'] or f"Execução {exec_info['id']}",
+                        key=f"rename_input_{exec_info['id']}"
+                    )
+                
+                with col_name2:
+                    if st.button(f"💾 Salvar Nome", key=f"save_name_btn_{exec_info['id']}"):
+                        try:
+                            session = SessionLocal()
+                            if crud.update_execution_name(session, exec_info['id'], new_name):
+                                st.success(f"✅ Nome atualizado para: {new_name}")
+                                st.rerun()
+                            else:
+                                st.error("❌ Erro ao atualizar nome")
+                        except Exception as e:
+                            st.error(f"❌ Erro: {e}")
+                        finally:
+                            session.close()
+                
+                # Métricas da execução
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Estudantes", exec_info['total_students'])
@@ -1160,24 +1065,70 @@ class TRIDashboard:
                 with col4:
                     st.metric("Status", exec_info['status'])
                 
-                c1, c2, c3 = st.columns([1,1,1])
+                # Botões de ação
+                st.subheader("🔧 Ações")
+                c1, c2, c3, c4 = st.columns([1,1,1,1])
+                
+                with c4:
+                    if is_currently_loaded:
+                        if st.button(f"🗑️ Descarregar", key=f"unload_btn_{exec_info['id']}"):
+                            # Limpar dados carregados
+                            if 'results_df' in st.session_state:
+                                del st.session_state['results_df']
+                            if 'current_execution_id' in st.session_state:
+                                del st.session_state['current_execution_id']
+                            if 'current_execution_name' in st.session_state:
+                                del st.session_state['current_execution_name']
+                            st.success("✅ Resultados descarregados")
+                            st.rerun()
                 with c1:
-                    if st.button(f"🔄 Carregar resultados", key=f"load_exec_{exec_info['execution_id']}"):
+                    if st.button(f"🔄 Carregar resultados", key=f"load_btn_{exec_info['id']}"):
                         try:
                             session = SessionLocal()
-                            df = crud.get_execution_results(session, exec_info['execution_id'])
+                            df = crud.get_execution_results(session, exec_info['id'])
                             if df.empty:
                                 st.warning("Sem resultados para esta execução.")
                             else:
-                                st.session_state['results_df'] = df
-                                st.success("✅ Resultados carregados na aba Processamento/Análise.")
+                                # Debug: mostrar informações dos dados
+                                # st.write(f"Colunas disponíveis: {list(df.columns)}")
+                                # st.write(f"Primeira linha: {df.iloc[0].to_dict()}")
+                                
+                                # Carregar resultados em todas as abas relevantes
+                                st.session_state['results_df'] = df.copy()  # Usar cópia para evitar referências
+                                st.session_state['current_execution_id'] = exec_info['id']
+                                st.session_state['current_execution_name'] = exec_info['name']
+                                
+                                # Verificar se foi salvo corretamente
+                                st.write("🔍 **Verificação de salvamento:**")
+                                st.write(f"results_df salvo: {'results_df' in st.session_state}")
+                                st.write(f"current_execution_id salvo: {'current_execution_id' in st.session_state}")
+                                st.write(f"current_execution_name salvo: {'current_execution_name' in st.session_state}")
+                                
+                                # Converter nomes das colunas para compatibilidade
+                                if 'Theta' in df.columns and 'theta' not in df.columns:
+                                    df['theta'] = df['Theta']
+                                if 'Nota_ENEM' in df.columns and 'enem_score' not in df.columns:
+                                    df['enem_score'] = df['Nota_ENEM']
+                                
+                                st.success(f"✅ Resultados carregados para todas as abas!")
+                                st.info(f"📊 {len(df)} resultados da execução '{exec_info['name']}' carregados")
+                                st.info("💡 Vá para as abas 'Processamento TRI' ou 'Visualizações' para ver os dados")
+                                
+                                # Debug: verificar estado da sessão
+                                # st.write(f"results_df presente: {'results_df' in st.session_state}")
+                                # st.write(f"current_execution_id: {st.session_state.get('current_execution_id', 'N/A')}")
+                                # st.write(f"current_execution_name: {st.session_state.get('current_execution_name', 'N/A')}")
+                                
+                                # Botão para forçar atualização
+                                if st.button("🔄 Atualizar Página", key=f"refresh_btn_{exec_info['id']}"):
+                                    st.rerun()
                         finally:
                             session.close()
                 with c2:
-                    if st.button(f"📥 Download CSV", key=f"dl_exec_{exec_info['execution_id']}"):
+                    if st.button(f"📥 Download CSV", key=f"download_btn_{exec_info['id']}"):
                         try:
                             session = SessionLocal()
-                            df = crud.get_execution_results(session, exec_info['execution_id'])
+                            df = crud.get_execution_results(session, exec_info['id'])
                         finally:
                             session.close()
                         if df.empty:
@@ -1186,15 +1137,15 @@ class TRIDashboard:
                             st.download_button(
                                 label="Baixar CSV",
                                 data=df.to_csv(index=False),
-                                file_name=f"exec_{exec_info['execution_id']}.csv",
+                                file_name=f"exec_{exec_info['id']}.csv",
                                 mime="text/csv",
-                                key=f"dbtn_exec_{exec_info['execution_id']}"
+                                key=f"dbtn_exec_{exec_info['id']}"
                             )
                 with c3:
-                    if st.button(f"🗑️ Deletar", key=f"del_exec_{exec_info['execution_id']}"):
+                    if st.button(f"🗑️ Deletar", key=f"delete_btn_{exec_info['id']}"):
                         try:
                             session = SessionLocal()
-                            ok = crud.delete_execution(session, exec_info['execution_id'])
+                            ok = crud.delete_execution(session, exec_info['id'])
                         finally:
                             session.close()
                         if ok:
@@ -1202,6 +1153,119 @@ class TRIDashboard:
                             st.rerun()
                         else:
                             st.error("❌ Não foi possível deletar.")
+
+    def parameters_tab(self):
+        """Aba de parâmetros salvos (itens calibrados)"""
+        st.header("📋 Parâmetros Salvos (Itens Calibrados)")
+        
+        try:
+            session = SessionLocal()
+            parameters_sets = crud.list_parameters_sets(session)
+        finally:
+            session.close()
+        
+        if not parameters_sets:
+            st.info("📝 Nenhum conjunto de parâmetros salvo ainda.")
+            return
+        
+        for params_info in parameters_sets:
+            # Usar o nome personalizado se disponível, senão usar o padrão
+            display_name = params_info['name'] or f"Conjunto {params_info['id']}"
+            
+            with st.expander(f"🔧 {display_name} - {str(params_info['created_at'])[:19]}"):
+                # Interface para renomear conjunto
+                st.subheader("✏️ Renomear Conjunto")
+                col_name1, col_name2 = st.columns([3, 1])
+                
+                with col_name1:
+                    new_name = st.text_input(
+                        f"Nome do Conjunto #{params_info['id']}:",
+                        value=params_info['name'] or f"Conjunto {params_info['id']}",
+                        key=f"rename_params_input_{params_info['id']}"
+                    )
+                
+                with col_name2:
+                    if st.button(f"💾 Salvar Nome", key=f"save_params_name_btn_{params_info['id']}"):
+                        try:
+                            session = SessionLocal()
+                            if crud.update_parameters_set_name(session, params_info['id'], new_name):
+                                st.success(f"✅ Nome atualizado para: {new_name}")
+                                st.rerun()
+                            else:
+                                st.error("❌ Erro ao atualizar nome")
+                        except Exception as e:
+                            st.error(f"❌ Erro: {e}")
+                        finally:
+                            session.close()
+                
+                # Métricas do conjunto
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total de Itens", params_info['total_items'])
+                with col2:
+                    st.metric("Data Criação", str(params_info['created_at'])[:10])
+                with col3:
+                    st.metric("ID", params_info['id'])
+                
+                # Botões de ação
+                st.subheader("🔧 Ações")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button(f"📊 Ver Parâmetros", key=f"view_params_btn_{params_info['id']}"):
+                        try:
+                            session = SessionLocal()
+                            params_df = crud.get_parameters_set(session, params_info['id'])
+                            session.close()
+                            
+                            st.subheader(f"📊 Parâmetros do Conjunto: {display_name}")
+                            
+                            # Estatísticas dos parâmetros
+                            col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+                            with col_stats1:
+                                st.metric("Parâmetro 'a' Médio", f"{params_df['a'].mean():.3f}")
+                            with col_stats2:
+                                st.metric("Parâmetro 'b' Médio", f"{params_df['b'].mean():.3f}")
+                            with col_stats3:
+                                st.metric("Parâmetro 'c' Médio", f"{params_df['c'].mean():.3f}")
+                            with col_stats4:
+                                anchor_count = params_df['is_anchor'].sum()
+                                st.metric("Itens Âncora", anchor_count)
+                            
+                            # Tabela de parâmetros
+                            st.dataframe(params_df, use_container_width=True)
+                            
+                            # Download CSV
+                            csv_data = params_df.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Download Parâmetros (CSV)",
+                                data=csv_data,
+                                file_name=f"parametros_conjunto_{params_info['id']}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erro ao carregar parâmetros: {e}")
+                
+                with col2:
+                    if st.button(f"📥 Download CSV", key=f"download_params_btn_{params_info['id']}"):
+                        try:
+                            session = SessionLocal()
+                            params_df = crud.get_parameters_set(session, params_info['id'])
+                            session.close()
+                            
+                            csv_data = params_df.to_csv(index=False)
+                            file_name = f"parametros_conjunto_{params_info['id']}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                            
+                            st.download_button(
+                                label="📥 Download Parâmetros (CSV)",
+                                data=csv_data,
+                                file_name=file_name,
+                                mime="text/csv"
+                            )
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erro ao gerar CSV: {e}")
 
 
 def main():

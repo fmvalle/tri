@@ -76,10 +76,17 @@ class ItemCalibrator:
                         idx = item_mapping[questao] - 1
                         anchor_mask[idx] = True
             
-            # Calibrar itens não ancorados
-            calibrated_params = self._calibrate_non_anchor_items(
-                response_array, anchor_mask, anchor_items, item_mapping
-            )
+            # Se temos âncoras, usar calibração relativa
+            if anchor_items and np.sum(anchor_mask) > 0:
+                self.logger.info("Usando calibração relativa com itens âncora")
+                calibrated_params = self._calibrate_relative_to_anchors(
+                    response_array, anchor_mask, anchor_items, item_mapping
+                )
+            else:
+                self.logger.info("Usando calibração independente (sem âncoras)")
+                calibrated_params = self._calibrate_independent_items(
+                    response_array, anchor_mask, item_mapping
+                )
             
             # Combinar com itens âncora
             final_params = self._combine_anchor_and_calibrated(
@@ -93,24 +100,159 @@ class ItemCalibrator:
             self.logger.error(f"Erro na calibração: {e}")
             raise
     
-    def _calibrate_non_anchor_items(self, response_array: np.ndarray, 
-                                   anchor_mask: np.ndarray,
-                                   anchor_items: Optional[Dict],
-                                   item_mapping: Dict) -> pd.DataFrame:
+    def _calibrate_relative_to_anchors(self, response_array: np.ndarray,
+                                      anchor_mask: np.ndarray,
+                                      anchor_items: Dict,
+                                      item_mapping: Dict) -> pd.DataFrame:
         """
-        Calibra itens não ancorados usando otimização
+        Calibra itens usando âncoras como referência para manter escala
         """
         calibrated_params = []
         
+        # Primeiro, estimar theta dos alunos usando apenas itens âncora
+        anchor_thetas = self._estimate_theta_from_anchors(
+            response_array, anchor_mask, anchor_items, item_mapping
+        )
+        
+        self.logger.info(f"Theta estimado para {len(anchor_thetas)} alunos usando âncoras")
+        
+        # Calibrar novos itens usando theta estimado dos âncoras
         for item_idx in range(response_array.shape[1]):
             if not anchor_mask[item_idx]:
-                # Item não ancorado - calibrar
                 questao = list(item_mapping.keys())[item_idx]
                 item_responses = response_array[:, item_idx]
                 
                 # Remover respostas nulas
                 valid_mask = ~np.isnan(item_responses)
-                if np.sum(valid_mask) < 10:  # Mínimo de respostas válidas
+                if np.sum(valid_mask) < 10:
+                    self.logger.warning(f"Item {questao}: poucas respostas válidas")
+                    params = {'a': 1.0, 'b': 0.0, 'c': 0.2}
+                else:
+                    # Usar theta estimado dos âncoras para calibração
+                    valid_thetas = anchor_thetas[valid_mask]
+                    valid_responses = item_responses[valid_mask]
+                    
+                    params = self._estimate_item_parameters_with_theta(
+                        valid_responses, valid_thetas
+                    )
+                
+                calibrated_params.append({
+                    'Questao': questao,
+                    'a': params['a'],
+                    'b': params['b'],
+                    'c': params['c'],
+                    'calibrated': True,
+                    'method': 'relative_to_anchors'
+                })
+        
+        return pd.DataFrame(calibrated_params)
+    
+    def _estimate_theta_from_anchors(self, response_array: np.ndarray,
+                                   anchor_mask: np.ndarray,
+                                   anchor_items: Dict,
+                                   item_mapping: Dict) -> np.ndarray:
+        """
+        Estima theta dos alunos usando apenas itens âncora
+        """
+        from core.tri_engine import TRIEngine
+        
+        tri_engine = TRIEngine()
+        thetas = np.zeros(response_array.shape[0])
+        
+        # Para cada aluno, estimar theta usando âncoras
+        for student_idx in range(response_array.shape[0]):
+            student_responses = []
+            a_params = []
+            b_params = []
+            c_params = []
+            
+            # Coletar respostas e parâmetros dos âncoras
+            for item_idx in range(response_array.shape[1]):
+                if anchor_mask[item_idx]:
+                    questao = list(item_mapping.keys())[item_idx]
+                    if questao in anchor_items:
+                        response = response_array[student_idx, item_idx]
+                        if not np.isnan(response):
+                            student_responses.append(response)
+                            a_params.append(anchor_items[questao]['a'])
+                            b_params.append(anchor_items[questao]['b'])
+                            c_params.append(anchor_items[questao]['c'])
+            
+            # Estimar theta se temos respostas suficientes
+            if len(student_responses) >= 3:  # Mínimo de 3 âncoras
+                try:
+                    theta = tri_engine.estimate_theta(
+                        np.array(student_responses),
+                        np.array(a_params),
+                        np.array(b_params),
+                        np.array(c_params)
+                    )
+                    thetas[student_idx] = theta
+                except Exception as e:
+                    self.logger.warning(f"Falha na estimação de theta para aluno {student_idx}: {e}")
+                    thetas[student_idx] = 0.0  # Valor padrão
+            else:
+                thetas[student_idx] = 0.0  # Valor padrão
+        
+        return thetas
+    
+    def _estimate_item_parameters_with_theta(self, responses: np.ndarray,
+                                           thetas: np.ndarray) -> Dict:
+        """
+        Estima parâmetros de um item usando theta conhecido dos âncoras
+        """
+        # Valores iniciais
+        initial_params = [1.0, 0.0, 0.2]  # a, b, c
+        
+        # Função objetivo: log-likelihood com theta conhecido
+        def objective(params):
+            a, b, c = params
+            if a <= 0 or c < 0 or c > 1:
+                return 1e6  # Penalidade para parâmetros inválidos
+            
+            # Calcular probabilidades esperadas para cada theta
+            probs = []
+            for theta in thetas:
+                p = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta - b)))
+                probs.append(p)
+            
+            probs = np.array(probs)
+            probs = np.clip(probs, 1e-6, 1 - 1e-6)
+            
+            # Log-likelihood
+            ll = np.sum(responses * np.log(probs) + (1 - responses) * np.log(1 - probs))
+            return -ll  # Minimizar -log-likelihood
+        
+        # Otimização com restrições
+        try:
+            result = minimize(objective, initial_params, method='L-BFGS-B',
+                            bounds=[(0.1, 5.0), (-3.0, 3.0), (0.0, 0.5)])
+            
+            if result.success:
+                return {'a': result.x[0], 'b': result.x[1], 'c': result.x[2]}
+            else:
+                self.logger.warning("Otimização falhou, usando valores padrão")
+                return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+                
+        except Exception as e:
+            self.logger.warning(f"Erro na otimização: {e}")
+            return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+    
+    def _calibrate_independent_items(self, response_array: np.ndarray,
+                                   anchor_mask: np.ndarray,
+                                   item_mapping: Dict) -> pd.DataFrame:
+        """
+        Calibra itens independentemente (método original)
+        """
+        calibrated_params = []
+        
+        for item_idx in range(response_array.shape[1]):
+            if not anchor_mask[item_idx]:
+                questao = list(item_mapping.keys())[item_idx]
+                item_responses = response_array[:, item_idx]
+                
+                valid_mask = ~np.isnan(item_responses)
+                if np.sum(valid_mask) < 10:
                     self.logger.warning(f"Item {questao}: poucas respostas válidas")
                     params = {'a': 1.0, 'b': 0.0, 'c': 0.2}
                 else:
@@ -121,7 +263,8 @@ class ItemCalibrator:
                     'a': params['a'],
                     'b': params['b'],
                     'c': params['c'],
-                    'calibrated': True
+                    'calibrated': True,
+                    'method': 'independent'
                 })
         
         return pd.DataFrame(calibrated_params)

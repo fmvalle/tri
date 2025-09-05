@@ -130,6 +130,117 @@ class TRIEngine:
             self.logger.error(f"Erro na estimação de theta: {e}")
             return 0.0
     
+    def estimate_theta_with_anchors(self, responses: np.ndarray, a_params: np.ndarray,
+                                   b_params: np.ndarray, c_params: np.ndarray,
+                                   anchor_mask: np.ndarray = None) -> float:
+        """
+        Estima theta usando itens âncora como referência prioritária
+        
+        Args:
+            responses: Vetor de respostas do aluno
+            a_params: Parâmetros de discriminação dos itens
+            b_params: Parâmetros de dificuldade dos itens
+            c_params: Parâmetros de acerto casual dos itens
+            anchor_mask: Máscara booleana indicando itens âncora
+            
+        Returns:
+            Theta estimado
+        """
+        try:
+            # Se temos máscara de âncoras, priorizar itens âncora
+            if anchor_mask is not None and np.sum(anchor_mask) > 0:
+                return self._estimate_theta_anchors_priority(
+                    responses, a_params, b_params, c_params, anchor_mask
+                )
+            else:
+                # Fallback para estimação padrão
+                return self.estimate_theta(responses, a_params, b_params, c_params)
+                
+        except Exception as e:
+            self.logger.error(f"Erro na estimação de theta com âncoras: {e}")
+            return self.estimate_theta(responses, a_params, b_params, c_params)
+    
+    def _estimate_theta_anchors_priority(self, responses: np.ndarray, a_params: np.ndarray,
+                                        b_params: np.ndarray, c_params: np.ndarray,
+                                        anchor_mask: np.ndarray) -> float:
+        """
+        Estima theta priorizando itens âncora para maior estabilidade
+        """
+        # Separar respostas e parâmetros de âncoras e não-âncoras
+        anchor_responses = responses[anchor_mask]
+        anchor_a = a_params[anchor_mask]
+        anchor_b = b_params[anchor_mask]
+        anchor_c = c_params[anchor_mask]
+        
+        non_anchor_responses = responses[~anchor_mask]
+        non_anchor_a = a_params[~anchor_mask]
+        non_anchor_b = b_params[~anchor_mask]
+        non_anchor_c = c_params[~anchor_mask]
+        
+        # Se temos âncoras suficientes, usar apenas elas
+        if len(anchor_responses) >= 3:
+            self.logger.debug(f"Estimando theta usando {len(anchor_responses)} itens âncora")
+            return self.estimate_theta(anchor_responses, anchor_a, anchor_b, anchor_c)
+        
+        # Se temos poucos âncoras, usar todos os itens mas com peso maior para âncoras
+        elif len(anchor_responses) > 0:
+            self.logger.debug(f"Estimando theta com {len(anchor_responses)} âncoras + {len(non_anchor_responses)} outros itens")
+            return self._estimate_theta_weighted(
+                anchor_responses, anchor_a, anchor_b, anchor_c,
+                non_anchor_responses, non_anchor_a, non_anchor_b, non_anchor_c
+            )
+        
+        # Se não temos âncoras, usar estimação padrão
+        else:
+            self.logger.debug("Nenhum item âncora disponível, usando estimação padrão")
+            return self.estimate_theta(responses, a_params, b_params, c_params)
+    
+    def _estimate_theta_weighted(self, anchor_responses: np.ndarray, anchor_a: np.ndarray,
+                                anchor_b: np.ndarray, anchor_c: np.ndarray,
+                                other_responses: np.ndarray, other_a: np.ndarray,
+                                other_b: np.ndarray, other_c: np.ndarray) -> float:
+        """
+        Estima theta com peso maior para itens âncora
+        """
+        bounds = self.config["theta_bounds"]
+        
+        # Função objetivo com peso maior para âncoras
+        def weighted_objective(theta):
+            # Log-likelihood dos âncoras (peso 2.0)
+            anchor_ll = self.log_likelihood(theta, anchor_responses, anchor_a, anchor_b, anchor_c)
+            
+            # Log-likelihood dos outros itens (peso 1.0)
+            if len(other_responses) > 0:
+                other_ll = self.log_likelihood(theta, other_responses, other_a, other_b, other_c)
+                total_ll = 2.0 * anchor_ll + 1.0 * other_ll
+            else:
+                total_ll = 2.0 * anchor_ll
+            
+            return total_ll
+        
+        # Otimização com diferentes pontos iniciais
+        initial_points = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        best_theta = 0.0
+        best_ll = float('inf')
+        
+        for initial_theta in initial_points:
+            try:
+                result = minimize_scalar(
+                    weighted_objective,
+                    bounds=bounds,
+                    method='bounded',
+                    options={'xatol': 1e-6}
+                )
+                
+                if result.success and result.fun < best_ll:
+                    best_theta = result.x
+                    best_ll = result.fun
+                    
+            except Exception:
+                continue
+        
+        return best_theta
+    
     def calculate_enem_score(self, theta: float) -> float:
         """
         Converte theta para escala ENEM

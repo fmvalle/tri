@@ -13,6 +13,9 @@ Sistema completo e profissional para correção de provas utilizando a **Teoria 
 - 📝 **Logging Completo**: Rastreamento detalhado de operações
 - 🎨 **Dashboard Web**: Interface gráfica moderna com Streamlit
 - 🐳 **Containerizado**: Docker para fácil implantação
+- 🎯 **Itens Âncora**: Suporte completo para calibração com itens de referência
+- 🔄 **Equating de Escalas**: Manutenção de consistência entre aplicações
+- 📊 **Calibração Relativa**: Calibração de novos itens usando âncoras como referência
 
 ## 🏗️ Arquitetura do Sistema
 
@@ -261,6 +264,66 @@ validation:
 - **Estimação de Theta**: Otimização por máxima verossimilhança
 - **Escala ENEM**: Conversão automática (500 + 100*theta)
 - **Parâmetros Customizáveis**: Suporte a parâmetros calibrados
+- **Itens Âncora**: Calibração de novos itens usando itens de referência pré-calibrados
+
+### 🎯 **Sistema de Itens Âncora**
+
+O sistema suporta o uso de **itens âncora** para calibração de novos itens, garantindo consistência entre diferentes aplicações da prova.
+
+#### **Como Funciona:**
+
+1. **Itens Âncora**: Questões com parâmetros já calibrados e validados
+2. **Calibração Relativa**: Novos itens são calibrados em relação aos âncoras
+3. **Equating**: Mantém a escala consistente entre diferentes aplicações
+4. **Qualidade**: Validação automática dos parâmetros calibrados
+
+#### **Formato dos Itens Âncora:**
+
+```csv
+Questao,a,b,c
+1,1.23614,3.66465,0.19831
+5,0.93375,2.50839,0.21717
+9,1.73057,-1.06602,0.16058
+```
+
+#### **Uso no Dashboard:**
+
+1. **Upload de Âncoras**: Selecione "Arquivo de Âncoras (CSV)" como fonte
+2. **Calibração Automática**: O sistema usa os âncoras para calibrar novos itens
+3. **Validação**: Verificação automática da qualidade dos parâmetros
+4. **Resultados**: Parâmetros calibrados com indicação de tipo (âncora vs. calibrado)
+
+#### **Vantagens:**
+
+- ✅ **Consistência**: Mesma escala entre aplicações
+- ✅ **Qualidade**: Validação baseada em itens conhecidos
+- ✅ **Eficiência**: Menos itens precisam ser calibrados
+- ✅ **Padrão ENEM**: Segue metodologia oficial
+
+### 🔄 **Equating de Escalas**
+
+Sistema profissional para manter a consistência de escalas entre diferentes aplicações de testes.
+
+#### **Funcionalidades:**
+
+1. **Equating entre Duas Aplicações**: Alinhamento de escalas usando âncoras comuns
+2. **Equating Múltiplas Aplicações**: Alinhamento de várias aplicações com uma referência
+3. **Recomendação de Âncoras**: Sugestão automática dos melhores itens para serem âncoras
+4. **Validação de Qualidade**: Métricas para verificar a qualidade do equating
+
+#### **Métodos Implementados:**
+
+- **Equating de Âncoras**: Usa itens comuns entre aplicações
+- **Transformação Linear**: Aplica transformações para alinhar escalas
+- **Validação Cruzada**: Verifica a estabilidade das transformações
+- **Métricas de Qualidade**: R², erro padrão, correlações
+
+#### **Interface no Dashboard:**
+
+- **Aba "Equating de Escalas"**: Acesso direto às funcionalidades
+- **Upload de Arquivos**: Suporte a múltiplos formatos
+- **Visualizações**: Gráficos e métricas de qualidade
+- **Download de Resultados**: Parâmetros transformados em CSV
 
 ### 📈 Visualizações
 

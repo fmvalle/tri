@@ -122,49 +122,144 @@ def get_execution_results(session: Session, execution_id: int) -> pd.DataFrame:
         }
         for r in rows
     ]
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    
+    # Calcular percentual de acertos
+    df['percentual_acertos'] = (df['acertos'] / df['total_itens'] * 100).round(2)
+    
+    return df
 
 
 def list_executions(session: Session) -> List[Dict]:
-    q = (
+    """Lista todas as execuções com informações resumidas"""
+    rows = (
         session.query(
-            Execution.id.label("execution_id"),
-            Execution.created_at,
+            Execution.id,
+            Execution.name,
             Execution.status,
-            Dataset.name.label("dataset_name"),
-            ParametersSet.id.label("param_set_id"),
+            Execution.created_at,
+            Execution.dataset_id,
+            Execution.parameters_set_id,
             func.count(StudentResult.id).label("total_students"),
             func.avg(StudentResult.theta).label("theta_mean"),
-            func.avg(StudentResult.enem_score).label("enem_mean"),
+            func.avg(StudentResult.enem_score).label("enem_mean")
         )
-        .join(Dataset, Execution.dataset_id == Dataset.id, isouter=True)
-        .join(ParametersSet, Execution.parameters_set_id == ParametersSet.id, isouter=True)
         .join(StudentResult, StudentResult.execution_id == Execution.id, isouter=True)
         .group_by(Execution.id)
         .order_by(Execution.created_at.desc())
+        .all()
     )
-    rows = q.all()
+    
     return [
         {
-            "execution_id": r.execution_id,
-            "created_at": r.created_at,
+            "id": r.id,
+            "name": r.name,
             "status": r.status,
-            "dataset_name": r.dataset_name,
-            "param_set_id": r.param_set_id,
+            "created_at": r.created_at,
+            "dataset_id": r.dataset_id,
+            "parameters_set_id": r.parameters_set_id,
             "total_students": int(r.total_students or 0),
-            "theta_mean": float(r.theta_mean or 0.0),
-            "enem_mean": float(r.enem_mean or 0.0),
+            "theta_mean": float(r.theta_mean or 0),
+            "enem_mean": float(r.enem_mean or 0),
+            "num_items": 0  # Será calculado separadamente se necessário
         }
         for r in rows
     ]
 
 
 def delete_execution(session: Session, execution_id: int) -> bool:
-    exec_obj = session.query(Execution).filter(Execution.id == execution_id).first()
-    if not exec_obj:
+    try:
+        execution = session.query(Execution).filter(Execution.id == execution_id).first()
+        if execution:
+            # Deletar resultados primeiro
+            session.query(StudentResult).filter(StudentResult.execution_id == execution_id).delete()
+            # Deletar execução
+            session.delete(execution)
+            session.commit()
+            return True
         return False
-    session.delete(exec_obj)
-    session.commit()
-    return True
+    except Exception:
+        session.rollback()
+        return False
+
+
+def update_execution_name(session: Session, execution_id: int, new_name: str) -> bool:
+    """Atualiza o nome de uma execução"""
+    try:
+        execution = session.query(Execution).filter(Execution.id == execution_id).first()
+        if execution:
+            execution.name = new_name
+            session.commit()
+            return True
+        return False
+    except Exception:
+        session.rollback()
+        return False
+
+
+def list_parameters_sets(session: Session) -> List[Dict]:
+    """Lista todos os conjuntos de parâmetros salvos"""
+    rows = (
+        session.query(
+            ParametersSet.id,
+            ParametersSet.name,
+            ParametersSet.created_at,
+            ParametersSet.is_anchor,
+            func.count(ItemParameter.id).label("total_items")
+        )
+        .join(ItemParameter, ItemParameter.parameters_set_id == ParametersSet.id, isouter=True)
+        .group_by(ParametersSet.id)
+        .order_by(ParametersSet.created_at.desc())
+        .all()
+    )
+    
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "created_at": r.created_at,
+            "is_anchor": r.is_anchor,
+            "total_items": int(r.total_items or 0)
+        }
+        for r in rows
+    ]
+
+
+def get_parameters_set(session: Session, parameters_set_id: int) -> pd.DataFrame:
+    """Obtém os parâmetros de um conjunto específico"""
+    rows = (
+        session.query(ItemParameter)
+        .filter(ItemParameter.parameters_set_id == parameters_set_id)
+        .all()
+    )
+    
+    data = [
+        {
+            "questao": r.questao,
+            "a": r.a,
+            "b": r.b,
+            "c": r.c,
+            "is_anchor": r.is_anchor
+        }
+        for r in rows
+    ]
+    
+    df = pd.DataFrame(data)
+    df = df.sort_values('questao')
+    return df
+
+
+def update_parameters_set_name(session: Session, parameters_set_id: int, new_name: str) -> bool:
+    """Atualiza o nome de um conjunto de parâmetros"""
+    try:
+        params_set = session.query(ParametersSet).filter(ParametersSet.id == parameters_set_id).first()
+        if params_set:
+            params_set.name = new_name
+            session.commit()
+            return True
+        return False
+    except Exception:
+        session.rollback()
+        return False
 
 
