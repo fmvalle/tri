@@ -4,7 +4,7 @@
 
 Este documento apresenta a implementação técnica do Sistema TRI (Teoria de Resposta ao Item) baseado no modelo de 3 parâmetros (3PL), seguindo as metodologias utilizadas no ENEM/SAEB. O sistema foi desenvolvido para estatísticos e psicometristas que necessitam de uma ferramenta robusta para análise de dados educacionais.
 
-## 🆕 **Atualizações Recentes (v2.0)**
+## 🆕 **Atualizações Recentes (v3.0)**
 
 ### **Correções Implementadas:**
 - ✅ **Colunas duplicadas removidas**: Padronização para `theta`, `enem_score`, `acertos`, `total_itens`, `percentual_acertos`
@@ -12,17 +12,29 @@ Este documento apresenta a implementação técnica do Sistema TRI (Teoria de Re
 - ✅ **Erro DataValidator corrigido**: Validação funcionando corretamente
 - ✅ **Nova aba "Parâmetros Salvos"**: Gerenciamento de itens calibrados
 - ✅ **Dependências atualizadas**: statsmodels incluído para funcionalidades avançadas
+- ✅ **Problema "theta travado" corrigido**: Algoritmo de calibração otimizado
+- ✅ **Escala theta expandida**: De (-4,4) para (-5,5) - 5 desvios padrão
+- ✅ **Conversão ENEM corrigida**: Sem limite máximo, apenas mínimo 0
+- ✅ **Interface reorganizada**: Sub-abas no Processamento TRI
+- ✅ **Percentual de acertos**: Nova coluna nos resultados
+- ✅ **IDs duplicados corrigidos**: Chaves únicas para todos os elementos Streamlit
 
 ### **Estrutura de Dados Padrão:**
 ```python
 # Colunas padrão dos resultados:
 - CodPessoa: Identificador único do estudante
-- theta: Proficiência latente estimada
-- enem_score: Nota na escala ENEM
+- theta: Proficiência latente estimada (escala -5 a +5)
+- enem_score: Nota na escala ENEM (sem limite máximo)
 - acertos: Número de itens acertados
 - total_itens: Total de itens do teste
-- percentual_acertos: Percentual de acertos calculado
+- percentual_acertos: Percentual de acertos calculado (%)
 ```
+
+### **Melhorias na Calibração:**
+- ✅ **Estimativa robusta de theta**: Baseada na proporção observada de acertos
+- ✅ **Múltiplos pontos iniciais**: Evita mínimos locais na otimização
+- ✅ **Constante 1.7 incluída**: Fórmula 3PL matematicamente correta
+- ✅ **Tratamento de casos extremos**: Respostas perfeitas e nulas
 
 ## 🔬 Modelo TRI Implementado
 
@@ -169,37 +181,66 @@ A estimação utiliza máxima verossimilhança com restrições:
 ```python
 def _estimate_item_parameters(self, responses: np.ndarray) -> Dict:
     """
-    Estima parâmetros usando máxima verossimilhança
+    Estima parâmetros de um item usando otimização CORRIGIDA
     """
     # Valores iniciais
     initial_params = [1.0, 0.0, 0.2]  # a, b, c
-    
-    # Função objetivo: log-likelihood
+
+    # Função objetivo corrigida
     def objective(params):
         a, b, c = params
         if a <= 0 or c < 0 or c > 1:
             return 1e6  # Penalidade para parâmetros inválidos
-        
-        # Calcular probabilidades esperadas
-        theta_est = np.mean(responses)  # Estimativa simples de theta
-        p_correct = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta_est - b)))
-        
-        # Log-likelihood
-        ll = np.sum(responses * np.log(p_correct) + 
-                   (1 - responses) * np.log(1 - p_correct))
-        return -ll  # Minimizar -log-likelihood
-    
-    # Otimização com restrições
-    try:
-        result = minimize(objective, initial_params, method='L-BFGS-B',
-                        bounds=[(0.1, 5.0), (-3.0, 3.0), (0.0, 0.5)])
-        
-        if result.success:
-            return {'a': result.x[0], 'b': result.x[1], 'c': result.x[2]}
+
+        # CORREÇÃO: Usar estimativa mais robusta de theta
+        p_observed = np.mean(responses)
+
+        # Estimativa inicial de theta baseada na proporção observada
+        if p_observed > c and p_observed < 1.0:
+            theta_est = b + (1 / (1.7 * a)) * np.log((p_observed - c) / (1 - c))
         else:
-            return {'a': 1.0, 'b': 0.0, 'c': 0.2}
-            
-    except Exception:
+            theta_est = 2 * (p_observed - 0.5)  # Mapear [0,1] para [-1,1]
+
+        # CORREÇÃO: Incluir constante 1.7 do modelo 3PL
+        p_correct = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta_est - b)))
+
+        # Evitar problemas numéricos
+        p_correct = np.clip(p_correct, 1e-6, 1 - 1e-6)
+
+        # Log-likelihood
+        ll = np.sum(responses * np.log(p_correct) + (1 - responses) * np.log(1 - p_correct))
+        return -ll  # Minimizar -log-likelihood
+
+    # Otimização com múltiplos pontos iniciais
+    best_params = None
+    best_value = float('inf')
+
+    # Diferentes pontos iniciais para evitar mínimos locais
+    initial_points = [
+        [1.0, 0.0, 0.2],   # Padrão
+        [0.8, -0.5, 0.15], # Alternativo 1
+        [1.2, 0.5, 0.25],  # Alternativo 2
+        [0.6, -1.0, 0.1],  # Alternativo 3
+        [1.5, 1.0, 0.3],   # Alternativo 4
+    ]
+
+    for initial_point in initial_points:
+        try:
+            result = minimize(objective, initial_point, method='L-BFGS-B',
+                            bounds=[(0.1, 5.0), (-3.0, 3.0), (0.0, 0.5)])
+
+            if result.success and result.fun < best_value:
+                best_params = result.x
+                best_value = result.fun
+
+        except Exception as e:
+            self.logger.warning(f"Falha na otimização com ponto inicial {initial_point}: {e}")
+            continue
+
+    if best_params is not None:
+        return {'a': best_params[0], 'b': best_params[1], 'c': best_params[2]}
+    else:
+        self.logger.warning("Todas as otimizações falharam, usando valores padrão")
         return {'a': 1.0, 'b': 0.0, 'c': 0.2}
 ```
 
@@ -335,8 +376,8 @@ def _handle_extreme_responses(self, responses: np.ndarray,
 - **c**: 0.0 ≤ c ≤ 0.5
 
 #### **3. Resultados**
-- **Theta**: -4.0 ≤ θ ≤ 4.0
-- **Nota ENEM**: 100 ≤ nota ≤ 1100
+- **Theta**: -5.0 ≤ θ ≤ 5.0 (5 desvios padrão)
+- **Nota ENEM**: 0 ≤ nota (sem limite máximo, distribuição N(500,100))
 
 ### **Implementação da Validação**
 
@@ -380,15 +421,25 @@ Onde:
 #### **Implementação**
 
 ```python
-def convert_to_enem_scale(self, theta: float) -> float:
+def calculate_enem_score(self, theta: float) -> float:
     """
-    Converte theta para escala ENEM
-    """
-    enem_base = self.config["enem_base"]
-    enem_scale = self.config["enem_scale"]
+    Converte theta para escala ENEM usando distribuição N(500, 100)
     
-    nota = enem_base + enem_scale * theta
-    return np.clip(nota, 100, 900)  # Limites da escala ENEM
+    Args:
+        theta: Proficiência estimada (escala logística -5 a +5)
+    
+    Returns:
+        Nota na escala ENEM (sem limite máximo)
+    """
+    try:
+        base = self.config["enem_base"]  # 500 (média)
+        scale = self.config["enem_scale"]  # 100 (desvio padrão)
+        enem_score = base + scale * theta
+        # Apenas limitar o mínimo a 0, sem limite máximo
+        return max(0, enem_score)
+    except Exception as e:
+        self.logger.error(f"Erro no cálculo da nota ENEM: {e}")
+        return 500.0
 ```
 
 ### **Normalização dos Parâmetros**
@@ -425,7 +476,7 @@ def normalize_b_parameters(self, b_params: np.ndarray) -> np.ndarray:
 #### **2. Brent para Estimação de Theta**
 - **Vantagem**: Estável para funções unidimensionais
 - **Aplicação**: Estimação de proficiência individual
-- **Configuração**: Limites [-4, 4] para evitar valores extremos
+- **Configuração**: Limites [-5, 5] para 5 desvios padrão (padrão ENEM)
 
 ### **Tratamento de Problemas Numéricos**
 
@@ -446,7 +497,7 @@ def estimate_theta_robust(self, responses: np.ndarray,
     """
     Estimação robusta de theta com múltiplos pontos iniciais
     """
-    initial_points = [-3.0, -1.5, 0.0, 1.5, 3.0]
+    initial_points = [-4.0, -2.0, 0.0, 2.0, 4.0]
     best_theta = 0.0
     best_ll = float('inf')
     
@@ -454,7 +505,7 @@ def estimate_theta_robust(self, responses: np.ndarray,
         try:
             result = minimize_scalar(
                 lambda theta: self.log_likelihood(theta, responses, a_params, b_params, c_params),
-                bounds=(-4, 4),
+                bounds=(-5, 5),  # Escala expandida para 5 desvios padrão
                 method='bounded'
             )
             
@@ -581,6 +632,53 @@ def test_model_fit(self, responses: np.ndarray, thetas: np.ndarray,
         'significant': total_chi_square > chi2.ppf(0.95, df)
     }
 ```
+
+## 🎨 Interface e Usabilidade
+
+### **Melhorias na Interface (v3.0)**
+
+#### **1. Reorganização do Processamento TRI**
+- **Sub-abas organizadas**: Gráficos, Estatísticas, Correlações, Tabela de Dados
+- **Navegação intuitiva**: Conteúdo agrupado logicamente
+- **Redução de redundância**: Eliminação de gráficos duplicados
+
+#### **2. Nova Coluna: Percentual de Acertos**
+```python
+# Cálculo automático do percentual de acertos
+percentual_acertos = round((acertos / num_items) * 100, 1)
+```
+
+#### **3. Correção de IDs Duplicados**
+- **Chaves únicas**: Todos os elementos Streamlit com identificadores únicos
+- **Prevenção de erros**: Eliminação de conflitos de elementos
+- **Estabilidade**: Interface mais robusta e confiável
+
+#### **4. Mensagens Explicativas**
+- **Clareza**: Explicações sobre onde encontrar theta dos alunos
+- **Orientação**: Guias para navegação no dashboard
+- **Contexto**: Informações sobre o significado dos parâmetros
+
+### **Estrutura das Sub-abas**
+
+#### **📊 Gráficos Principais**
+- Histogramas de distribuição (Theta e ENEM)
+- Boxplots para análise de variabilidade
+- Distribuição cumulativa
+
+#### **📈 Estatísticas**
+- Estatísticas descritivas detalhadas
+- Métricas de centralidade e dispersão
+- Percentis e quartis
+
+#### **🔗 Correlações**
+- Theta vs. Acertos
+- Theta vs. ENEM
+- Percentual de Acertos vs. ENEM
+
+#### **📋 Tabela de Dados**
+- Resultados completos com download
+- Ordenação por theta
+- Explicação das colunas
 
 ## 📈 Relatórios e Visualizações
 
@@ -713,4 +811,4 @@ def plot_item_information_function(self, a: float, b: float, c: float,
 
 **Desenvolvido para a comunidade científica e educacional**
 
-*Última atualização: Dezembro 2024*
+*Última atualização: Janeiro 2025 - v3.0*

@@ -243,19 +243,20 @@ class TRIEngine:
     
     def calculate_enem_score(self, theta: float) -> float:
         """
-        Converte theta para escala ENEM
+        Converte theta para escala ENEM usando distribuição N(500, 100)
         
         Args:
-            theta: Proficiência estimada
+            theta: Proficiência estimada (escala logística -5 a +5)
             
         Returns:
-            Nota na escala ENEM
+            Nota na escala ENEM (sem limite máximo)
         """
         try:
-            base = self.config["enem_base"]
-            scale = self.config["enem_scale"]
+            base = self.config["enem_base"]  # 500 (média)
+            scale = self.config["enem_scale"]  # 100 (desvio padrão)
             enem_score = base + scale * theta
-            return max(0, min(1000, enem_score))  # Limitar entre 0 e 1000
+            # Apenas limitar o mínimo a 0, sem limite máximo
+            return max(0, enem_score)
         except Exception as e:
             self.logger.error(f"Erro no cálculo da nota ENEM: {e}")
             return 500.0
@@ -311,12 +312,16 @@ class TRIEngine:
                     theta = self.estimate_theta(responses, a_params, b_params, c_params)
                     enem_score = self.calculate_enem_score(theta)
                     
+                    acertos = int(np.sum(responses))
+                    percentual_acertos = round((acertos / num_items) * 100, 1)
+                    
                     results.append({
                         'CodPessoa': cod_pessoa,
                         'theta': round(theta, 3),
                         'enem_score': round(enem_score),
-                        'acertos': int(np.sum(responses)),
-                        'total_itens': num_items
+                        'acertos': acertos,
+                        'total_itens': num_items,
+                        'percentual_acertos': percentual_acertos
                     })
                     
                     self.logger.debug(f"Estudante {cod_pessoa}: theta={theta:.3f}, "
@@ -330,7 +335,8 @@ class TRIEngine:
                         'theta': 0.0,
                         'enem_score': 500,
                         'acertos': 0,
-                        'total_itens': num_items
+                        'total_itens': num_items,
+                        'percentual_acertos': 0.0
                     })
             
             results_df = pd.DataFrame(results)

@@ -360,7 +360,7 @@ class TRIDashboard:
                             # Mostrar resultados
                             self.show_calibration_results(calibrated_params, validation)
                             csv = calibrated_params.to_csv(index=False)
-                            st.download_button(label="📥 Download Parâmetros Calibrados (CSV)", data=csv, file_name="parametros_calibrados.csv", mime="text/csv")
+                            st.download_button(label="📥 Download Parâmetros Calibrados (CSV)", data=csv, file_name="parametros_calibrados.csv", mime="text/csv", key="download_calibrated_params")
                         else:
                             st.error("❌ Problemas na calibração:")
                             for error in validation['errors']:
@@ -380,6 +380,17 @@ class TRIDashboard:
     def tri_processing_tab(self):
         """Aba de processamento TRI"""
         st.header("📊 Processamento TRI")
+        
+        # Explicação sobre o processamento TRI
+        st.info("""
+        🎯 **Esta aba calcula o theta (proficiência) dos alunos usando os parâmetros dos itens:**
+        
+        1. **Se você fez calibração**: Os parâmetros calibrados serão usados automaticamente
+        2. **Se você tem parâmetros salvos**: Pode selecionar um conjunto de parâmetros
+        3. **Resultado**: Cada aluno receberá um valor de theta e nota ENEM
+        
+        📋 **O theta dos alunos aparecerá na "Tabela de Resultados" abaixo dos gráficos.**
+        """)
         
         # Debug: verificar estado da sessão
         # st.write(f"uploaded_data presente: {'uploaded_data' in st.session_state}")
@@ -591,7 +602,8 @@ class TRIDashboard:
             label="📥 Download Resultados (CSV)",
             data=csv_data,
             file_name=f"resultados_tri_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
+            mime="text/csv",
+            key="download_tri_results_main"
         )
 
     def show_calibration_results(self, calibrated_params, validation=None, show_validation=True):
@@ -634,6 +646,16 @@ class TRIDashboard:
         # Tabela de resultados
         st.subheader("📋 Parâmetros Calibrados")
         
+        # Explicação sobre a tabela
+        st.info("""
+        ℹ️ **Esta tabela mostra os parâmetros dos itens calibrados:**
+        - **a**: Parâmetro de discriminação (quão bem o item diferencia alunos)
+        - **b**: Parâmetro de dificuldade (quão difícil é o item)
+        - **c**: Parâmetro de acerto casual (probabilidade de acertar por sorte)
+        
+        📊 **Para ver o theta dos alunos**, vá para a aba **"📊 Processamento TRI"** e processe os dados com estes parâmetros.
+        """)
+        
         # Adicionar coluna de tipo se não existir
         display_df = calibrated_params.copy()
         if 'type' not in display_df.columns:
@@ -655,7 +677,7 @@ class TRIDashboard:
                     st.warning(f"• {warning}")
     
     def show_tri_results(self, results_df):
-        """Mostra resultados do processamento"""
+        """Mostra resultados do processamento com sub-abas organizadas"""
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total de Estudantes", len(results_df))
@@ -669,70 +691,184 @@ class TRIDashboard:
             theta_std = results_df['theta'].std()
             st.metric("Desvio Padrão Theta", f"{theta_std:.3f}")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            fig_theta = px.histogram(results_df, x='theta', nbins=30, 
-                                    title="Distribuição de Theta")
-            st.plotly_chart(fig_theta, use_container_width=True, key=self.get_unique_key("hist_theta_processing"))
-        with col2:
-            fig_enem = px.histogram(results_df, x='enem_score', nbins=30,
-                                   title="Distribuição de Notas ENEM")
-            st.plotly_chart(fig_enem, use_container_width=True, key=self.get_unique_key("hist_enem_processing"))
+        # Sub-abas para organizar o conteúdo
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📊 Gráficos Principais",
+            "📈 Estatísticas",
+            "🔗 Correlações",
+            "📋 Tabela de Dados"
+        ])
         
-        # Estatísticas detalhadas
-        st.subheader("📊 Estatísticas Detalhadas")
+        with tab1:
+            st.subheader("📊 Gráficos Principais")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                fig_theta = px.histogram(results_df, x='theta', nbins=30, 
+                                        title="Distribuição de Theta")
+                st.plotly_chart(fig_theta, use_container_width=True, key=self.get_unique_key("hist_theta_processing"))
+            with col2:
+                fig_enem = px.histogram(results_df, x='enem_score', nbins=30,
+                                       title="Distribuição de Notas ENEM")
+                st.plotly_chart(fig_enem, use_container_width=True, key=self.get_unique_key("hist_enem_processing"))
         
-        col1, col2 = st.columns(2)
+            # Boxplots
+            col1, col2 = st.columns(2)
+            with col1:
+                fig_box_theta = px.box(results_df, y='theta', title="Boxplot de Theta")
+                st.plotly_chart(fig_box_theta, use_container_width=True, key=self.get_unique_key("box_theta_dist"))
+            with col2:
+                fig_box_enem = px.box(results_df, y='enem_score', title="Boxplot de Notas ENEM")
+                st.plotly_chart(fig_box_enem, use_container_width=True, key=self.get_unique_key("box_enem_dist"))
+            
+            # Distribuição cumulativa
+            st.subheader("📈 Distribuição Cumulativa")
+            fig_cumulative = go.Figure()
+            
+            # Theta
+            sorted_theta = np.sort(results_df['theta'])
+            y_theta = np.arange(1, len(sorted_theta) + 1) / len(sorted_theta)
+            fig_cumulative.add_trace(go.Scatter(x=sorted_theta, y=y_theta, 
+                                               name='Theta', mode='lines'))
+            
+            # ENEM
+            sorted_enem = np.sort(results_df['enem_score'])
+            y_enem = np.arange(1, len(sorted_enem) + 1) / len(sorted_enem)
+            fig_cumulative.add_trace(go.Scatter(x=sorted_enem, y=y_enem, 
+                                               name='ENEM', mode='lines'))
+            
+            fig_cumulative.update_layout(
+                title="Distribuição Cumulativa",
+                xaxis_title="Valor",
+                yaxis_title="Probabilidade Cumulativa"
+            )
+            st.plotly_chart(fig_cumulative, use_container_width=True, key=self.get_unique_key("cumulative_dist"))
         
-        with col1:
-            st.subheader("📈 Estatísticas de Theta")
-            theta_stats = results_df['theta'].describe()
-            st.dataframe(theta_stats)
+        with tab2:
+            st.subheader("📈 Estatísticas Detalhadas")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("📊 Estatísticas de Theta")
+                theta_stats = results_df['theta'].describe()
+                st.dataframe(theta_stats)
+                
+                # Métricas de theta
+                st.subheader("📊 Métricas de Theta")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("Média", f"{results_df['theta'].mean():.3f}")
+                    st.metric("Mediana", f"{np.median(results_df['theta']):.3f}")
+                with col_b:
+                    st.metric("Desvio Padrão", f"{results_df['theta'].std():.3f}")
+                    st.metric("Amplitude", f"{results_df['theta'].max() - results_df['theta'].min():.3f}")
+            
+            with col2:
+                st.subheader("📊 Estatísticas de Nota ENEM")
+                enem_stats = results_df['enem_score'].describe()
+                st.dataframe(enem_stats)
+                
+                # Métricas de ENEM
+                st.subheader("📊 Métricas de ENEM")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("Média", f"{results_df['enem_score'].mean():.1f}")
+                    st.metric("Mediana", f"{np.median(results_df['enem_score']):.1f}")
+                with col_b:
+                    st.metric("Desvio Padrão", f"{results_df['enem_score'].std():.1f}")
+                    st.metric("Amplitude", f"{results_df['enem_score'].max() - results_df['enem_score'].min():.0f}")
         
-        with col2:
-            st.subheader("📈 Estatísticas de Nota ENEM")
-            enem_stats = results_df['enem_score'].describe()
-            st.dataframe(enem_stats)
+            # Percentis
+            st.subheader("📊 Percentis")
+            percentiles = [5, 10, 25, 50, 75, 90, 95]
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("Percentis de Theta")
+                theta_percentiles = [np.percentile(results_df['theta'], p) for p in percentiles]
+                percentiles_df = pd.DataFrame({
+                    'Percentil': [f'P{p}' for p in percentiles],
+                    'Valor': theta_percentiles
+                })
+                st.dataframe(percentiles_df, use_container_width=True)
+            
+            with col2:
+                st.subheader("Percentis de Nota ENEM")
+                enem_percentiles = [np.percentile(results_df['enem_score'], p) for p in percentiles]
+                percentiles_df = pd.DataFrame({
+                    'Percentil': [f'P{p}' for p in percentiles],
+                    'Valor': enem_percentiles
+                })
+                st.dataframe(percentiles_df, use_container_width=True)
         
-        # Gráficos adicionais
-        st.subheader("📈 Gráficos Adicionais")
+        with tab3:
+            st.subheader("🔗 Análises de Correlação")
+            
+            if 'acertos' in results_df.columns:
+                # Correlação theta vs acertos
+                correlation = results_df['acertos'].corr(results_df['theta'])
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("🎯 Correlação Theta vs Acertos")
+                    st.metric("Correlação", f"{correlation:.3f}")
+                    
+                    # Scatter plot
+                    fig_scatter = px.scatter(results_df, x='acertos', y='theta',
+                                            title=f"Theta vs Acertos (r = {correlation:.3f})")
+                    st.plotly_chart(fig_scatter, use_container_width=True, key=self.get_unique_key("scatter_theta_acertos"))
+                
+                with col2:
+                    # Correlação theta vs ENEM
+                    corr_theta_enem = results_df['theta'].corr(results_df['enem_score'])
+                    st.metric("Correlação Theta-ENEM", f"{corr_theta_enem:.3f}")
+                    
+                    # Scatter plot
+                    fig_scatter2 = px.scatter(results_df, x='theta', y='enem_score',
+                                             title=f"Theta vs ENEM (r = {corr_theta_enem:.3f})")
+                    st.plotly_chart(fig_scatter2, use_container_width=True, key=self.get_unique_key("scatter_theta_enem"))
+                
+                # Correlação acertos vs ENEM
+                if 'percentual_acertos' in results_df.columns:
+                    corr_acertos_enem = results_df['percentual_acertos'].corr(results_df['enem_score'])
+                    st.subheader("🎯 Correlação Percentual de Acertos vs ENEM")
+                    st.metric("Correlação", f"{corr_acertos_enem:.3f}")
+                    
+                    fig_scatter3 = px.scatter(results_df, x='percentual_acertos', y='enem_score',
+                                             title=f"Percentual de Acertos vs ENEM (r = {corr_acertos_enem:.3f})")
+                    st.plotly_chart(fig_scatter3, use_container_width=True, key=self.get_unique_key("scatter_acertos_enem"))
+            else:
+                st.info("ℹ️ Dados de acertos não disponíveis para análise de correlação")
         
-        col1, col2 = st.columns(2)
+        with tab4:
+            st.subheader("📋 Tabela de Resultados")
+            
+            # Explicação sobre as colunas
+            st.info("""
+            📊 **Colunas da tabela:**
+            - **CodPessoa**: Identificador do aluno
+            - **theta**: Proficiência estimada (escala logística)
+            - **enem_score**: Nota na escala ENEM (500 ± 100*theta)
+            - **acertos**: Número de itens acertados
+            - **total_itens**: Total de itens da prova
+            - **percentual_acertos**: Percentual de acertos (%)
+            """)
+            
+            # Ordenar por theta (maior para menor)
+            display_df = results_df.sort_values('theta', ascending=False)
+            st.dataframe(display_df, use_container_width=True)
+            
+            # Download dos resultados
+            csv_data = results_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Resultados (CSV)",
+                data=csv_data,
+                file_name=f"resultados_tri_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="download_tri_results_tab"
+            )
         
-        with col1:
-            # Boxplot de theta
-            fig_box_theta = px.box(results_df, y='theta', title="Boxplot de Theta")
-            st.plotly_chart(fig_box_theta, use_container_width=True, key=self.get_unique_key("box_theta_dist"))
-        
-        with col2:
-            # Boxplot de ENEM
-            fig_box_enem = px.box(results_df, y='enem_score', title="Boxplot de Notas ENEM")
-            st.plotly_chart(fig_box_enem, use_container_width=True, key=self.get_unique_key("box_enem_dist"))
-        
-        # Gráfico de distribuição cumulativa
-        st.subheader("📈 Distribuição Cumulativa")
-        
-        fig_cumulative = go.Figure()
-        
-        # Theta
-        sorted_theta = np.sort(results_df['theta'])
-        y_theta = np.arange(1, len(sorted_theta) + 1) / len(sorted_theta)
-        fig_cumulative.add_trace(go.Scatter(x=sorted_theta, y=y_theta, 
-                                           name='Theta', mode='lines'))
-        
-        # ENEM
-        sorted_enem = np.sort(results_df['enem_score'])
-        y_enem = np.arange(1, len(sorted_enem) + 1) / len(sorted_enem)
-        fig_cumulative.add_trace(go.Scatter(x=sorted_enem, y=y_enem, 
-                                           name='ENEM', mode='lines'))
-        
-        fig_cumulative.update_layout(
-            title="Distribuição Cumulativa",
-            xaxis_title="Valor",
-            yaxis_title="Probabilidade Cumulativa"
-        )
-        
-        st.plotly_chart(fig_cumulative, use_container_width=True, key=self.get_unique_key("cumulative_dist"))
         
         # Análises de correlação
         if 'uploaded_data' in st.session_state:
@@ -998,7 +1134,8 @@ class TRIDashboard:
             label="📥 Download Resultados Equatados (CSV)",
             data=csv_data,
             file_name=f"resultados_equatados_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
+            mime="text/csv",
+            key="download_equated_results"
         )
 
     def history_tab(self):
@@ -1241,7 +1378,8 @@ class TRIDashboard:
                                 label="📥 Download Parâmetros (CSV)",
                                 data=csv_data,
                                 file_name=f"parametros_conjunto_{params_info['id']}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
+                                mime="text/csv",
+                                key=f"download_params_{params_info['id']}_1"
                             )
                             
                         except Exception as e:
@@ -1261,7 +1399,8 @@ class TRIDashboard:
                                 label="📥 Download Parâmetros (CSV)",
                                 data=csv_data,
                                 file_name=file_name,
-                                mime="text/csv"
+                                mime="text/csv",
+                                key=f"download_params_{params_info['id']}_2"
                             )
                             
                         except Exception as e:

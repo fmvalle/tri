@@ -25,7 +25,7 @@ TRI_CONFIG = {
     "default_a": 1.0,      # Discriminação padrão
     "default_b": 0.0,      # Dificuldade padrão
     "default_c": 0.2,      # Acerto casual padrão
-    "theta_bounds": (-4, 4),  # Limites para estimação de theta
+    "theta_bounds": (-5, 5),  # Limites para estimação de theta (5 desvios padrão)
     "enem_base": 500,      # Nota base ENEM
     "enem_scale": 100,     # Escala ENEM
     "constant": 1.7,       # Constante do modelo 3PL

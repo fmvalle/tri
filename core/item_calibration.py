@@ -271,38 +271,66 @@ class ItemCalibrator:
     
     def _estimate_item_parameters(self, responses: np.ndarray) -> Dict:
         """
-        Estima parâmetros de um item usando otimização
+        Estima parâmetros de um item usando otimização CORRIGIDA
         """
         # Valores iniciais
         initial_params = [1.0, 0.0, 0.2]  # a, b, c
         
-        # Função objetivo: log-likelihood
+        # Função objetivo corrigida
         def objective(params):
             a, b, c = params
             if a <= 0 or c < 0 or c > 1:
                 return 1e6  # Penalidade para parâmetros inválidos
             
-            # Calcular probabilidades esperadas
-            theta_est = np.mean(responses)  # Estimativa simples de theta
-            p_correct = c + (1 - c) / (1 + np.exp(-a * (theta_est - b)))
+            # CORREÇÃO: Usar estimativa mais robusta de theta
+            p_observed = np.mean(responses)
+            
+            # Estimativa inicial de theta baseada na proporção observada
+            if p_observed > c and p_observed < 1.0:
+                theta_est = b + (1 / (1.7 * a)) * np.log((p_observed - c) / (1 - c))
+            else:
+                theta_est = 2 * (p_observed - 0.5)  # Mapear [0,1] para [-1,1]
+            
+            # CORREÇÃO: Incluir constante 1.7 do modelo 3PL
+            p_correct = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta_est - b)))
+            
+            # Evitar problemas numéricos
+            p_correct = np.clip(p_correct, 1e-6, 1 - 1e-6)
             
             # Log-likelihood
             ll = np.sum(responses * np.log(p_correct) + (1 - responses) * np.log(1 - p_correct))
             return -ll  # Minimizar -log-likelihood
         
-        # Otimização
-        try:
-            result = minimize(objective, initial_params, method='L-BFGS-B',
-                            bounds=[(0.1, 5.0), (-3.0, 3.0), (0.0, 0.5)])
-            
-            if result.success:
-                return {'a': result.x[0], 'b': result.x[1], 'c': result.x[2]}
-            else:
-                self.logger.warning("Otimização falhou, usando valores padrão")
-                return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+        # Otimização com múltiplos pontos iniciais
+        best_params = None
+        best_value = float('inf')
+        
+        # Diferentes pontos iniciais para evitar mínimos locais
+        initial_points = [
+            [1.0, 0.0, 0.2],   # Padrão
+            [0.8, -0.5, 0.15], # Alternativo 1
+            [1.2, 0.5, 0.25],  # Alternativo 2
+            [0.6, -1.0, 0.1],  # Alternativo 3
+            [1.5, 1.0, 0.3],   # Alternativo 4
+        ]
+        
+        for initial_point in initial_points:
+            try:
+                result = minimize(objective, initial_point, method='L-BFGS-B',
+                                bounds=[(0.1, 5.0), (-3.0, 3.0), (0.0, 0.5)])
                 
-        except Exception as e:
-            self.logger.warning(f"Erro na otimização: {e}")
+                if result.success and result.fun < best_value:
+                    best_params = result.x
+                    best_value = result.fun
+                    
+            except Exception as e:
+                self.logger.warning(f"Falha na otimização com ponto inicial {initial_point}: {e}")
+                continue
+        
+        if best_params is not None:
+            return {'a': best_params[0], 'b': best_params[1], 'c': best_params[2]}
+        else:
+            self.logger.warning("Todas as otimizações falharam, usando valores padrão")
             return {'a': 1.0, 'b': 0.0, 'c': 0.2}
     
     def _combine_anchor_and_calibrated(self, calibrated_params: pd.DataFrame,

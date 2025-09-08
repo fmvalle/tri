@@ -1,5 +1,16 @@
 # 🎯 Guia Prático - Itens Âncora no Sistema TRI
 
+## 🆕 **Atualizações v3.0**
+
+### **Melhorias Implementadas:**
+- ✅ **Algoritmo de calibração otimizado**: Problema "theta travado" corrigido
+- ✅ **Escala theta expandida**: De (-4,4) para (-5,5) - 5 desvios padrão
+- ✅ **Conversão ENEM corrigida**: Sem limite máximo, apenas mínimo 0
+- ✅ **Interface reorganizada**: Sub-abas no Processamento TRI
+- ✅ **Percentual de acertos**: Nova coluna nos resultados
+- ✅ **Estimativa robusta de theta**: Baseada na proporção observada
+- ✅ **Múltiplos pontos iniciais**: Evita mínimos locais na otimização
+
 ## 📋 O que são Itens Âncora?
 
 **Itens âncora** são questões que já foram calibradas e validadas em aplicações anteriores, servindo como referência para calibrar novos itens e manter a consistência da escala entre diferentes aplicações de um teste.
@@ -140,17 +151,19 @@ O sistema gera relatórios incluindo:
 - Parâmetros com valores extremos
 - Mensagens de erro na otimização
 - Resultados inconsistentes
+- **CORRIGIDO v3.0**: Theta "travado" com mesmo valor para todos os itens
 
 #### **Soluções:**
 - **Verificar âncoras**: Garantir qualidade dos itens âncora
 - **Aumentar âncoras**: Adicionar mais itens de referência
 - **Ajustar dados**: Verificar qualidade das respostas
+- **v3.0**: Algoritmo otimizado com múltiplos pontos iniciais resolve o problema
 
 ### **2. Parâmetros Extremos**
 
 #### **Sintomas:**
 - a > 10 (discriminação muito alta)
-- b < -5 ou b > 5 (dificuldade extrema)
+- b < -5 ou b > 5 (dificuldade extrema) - **v3.0**: Escala expandida permite até ±5
 - c > 0.5 (acerto casual muito alto)
 
 #### **Soluções:**
@@ -164,11 +177,25 @@ O sistema gera relatórios incluindo:
 - Parâmetros b muito diferentes entre aplicações
 - Theta estimado fora dos limites esperados
 - Notas ENEM inconsistentes
+- **CORRIGIDO v3.0**: Alunos com 0 acertos recebendo nota > 0
 
 #### **Soluções:**
 - **Padronizar âncoras**: Usar mesmos âncoras entre aplicações
 - **Verificar calibração**: Recalibrar se necessário
 - **Validar processo**: Revisar todo o processo de calibração
+- **v3.0**: Escala expandida e conversão ENEM corrigida resolvem inconsistências
+
+### **4. Problemas de Interface**
+
+#### **Sintomas:**
+- **CORRIGIDO v3.0**: Erro "StreamlitDuplicateElementId" com botões de download
+- Gráficos duplicados na aba Processamento TRI
+- Navegação confusa entre diferentes visualizações
+
+#### **Soluções:**
+- **v3.0**: Chaves únicas para todos os elementos Streamlit
+- **v3.0**: Sub-abas organizadas eliminam redundância
+- **v3.0**: Mensagens explicativas melhoram navegação
 
 ## 🔬 Configurações Avançadas
 
@@ -180,7 +207,10 @@ TRI_CONFIG = {
     "default_a": 1.0,      # Discriminação padrão
     "default_b": 0.0,      # Dificuldade padrão
     "default_c": 0.2,      # Acerto casual padrão
-    "theta_bounds": (-4, 4),  # Limites para theta
+    "theta_bounds": (-5, 5),  # Limites para theta (5 desvios padrão)
+    "enem_base": 500,      # Nota base ENEM
+    "enem_scale": 100,     # Escala ENEM
+    "constant": 1.7,       # Constante do modelo 3PL
     "max_iterations": 1000,  # Máximo de iterações
     "tolerance": 1e-6      # Tolerância para convergência
 }
@@ -213,7 +243,7 @@ def validate_calibration(self, params_df: pd.DataFrame) -> Dict:
     if (params_df['a'] > 8).any():
         validation['warnings'].append("Alguns parâmetros 'a' são muito altos")
     
-    if (params_df['b'] < -4).any() or (params_df['b'] > 4).any():
+    if (params_df['b'] < -5).any() or (params_df['b'] > 5).any():
         validation['warnings'].append("Alguns parâmetros 'b' são extremos")
     
     return validation
@@ -251,6 +281,47 @@ def validate_calibration(self, params_df: pd.DataFrame) -> Dict:
 - **Backup automático**: Cópia de segurança antes de mudanças
 - **Documentação**: Registrar mudanças e justificativas
 - **Testes**: Validar novas configurações antes de produção
+
+## 🎨 Melhorias na Interface (v3.0)
+
+### **1. Reorganização do Processamento TRI**
+
+#### **Sub-abas Organizadas:**
+- **📊 Gráficos Principais**: Histogramas, boxplots e distribuição cumulativa
+- **📈 Estatísticas**: Estatísticas descritivas detalhadas e percentis
+- **🔗 Correlações**: Análises de correlação entre variáveis
+- **📋 Tabela de Dados**: Resultados completos com download
+
+#### **Benefícios:**
+- ✅ **Navegação intuitiva**: Conteúdo agrupado logicamente
+- ✅ **Redução de redundância**: Eliminação de gráficos duplicados
+- ✅ **Melhor organização**: Informações mais acessíveis
+
+### **2. Nova Coluna: Percentual de Acertos**
+
+#### **Cálculo Automático:**
+```python
+percentual_acertos = round((acertos / num_items) * 100, 1)
+```
+
+#### **Benefícios:**
+- ✅ **Interpretação fácil**: Percentual mais intuitivo que número absoluto
+- ✅ **Comparação direta**: Facilita análise entre diferentes provas
+- ✅ **Análise de correlação**: Nova variável para estudos estatísticos
+
+### **3. Escala Theta Expandida**
+
+#### **Mudança de (-4,4) para (-5,5):**
+- **Justificativa**: 5 desvios padrão seguindo padrão ENEM
+- **Benefício**: Melhor cobertura de casos extremos
+- **Resultado**: Alunos com 0 acertos recebem nota próxima de 0
+
+### **4. Conversão ENEM Corrigida**
+
+#### **Sem Limite Máximo:**
+- **Antes**: Nota limitada a 1000
+- **Agora**: Sem limite máximo, apenas mínimo 0
+- **Justificativa**: Distribuição N(500,100) sem truncamento superior
 
 ## 🎓 Casos de Uso Educacionais
 
@@ -331,12 +402,13 @@ def analyze_optimization(self, responses: np.ndarray, questao: int):
     """
     Análise detalhada da otimização
     """
-    # Testar diferentes pontos iniciais
+    # Testar diferentes pontos iniciais (v3.0 otimizado)
     initial_points = [
         [1.0, 0.0, 0.2],   # Padrão
-        [0.5, -1.0, 0.1],  # Baixa discriminação, fácil
-        [2.0, 1.0, 0.3],   # Alta discriminação, difícil
-        [1.5, 0.5, 0.15],  # Média discriminação, médio
+        [0.8, -0.5, 0.15], # Alternativo 1
+        [1.2, 0.5, 0.25],  # Alternativo 2
+        [0.6, -1.0, 0.1],  # Alternativo 3
+        [1.5, 1.0, 0.3],   # Alternativo 4
     ]
     
     results = []
@@ -462,3 +534,7 @@ pip install matplotlib      # Gráficos básicos
 
 *Para dúvidas técnicas, consulte `DOCUMENTACAO_TECNICA.md`*
 *Para suporte geral, consulte `README.md`*
+
+---
+
+**Última atualização: Janeiro 2025 - v3.0**
