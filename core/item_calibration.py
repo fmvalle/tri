@@ -50,18 +50,26 @@ class ItemCalibrator:
             raise
     
     def calibrate_items_3pl(self, responses_df: pd.DataFrame, 
-                           anchor_items: Optional[Dict] = None) -> pd.DataFrame:
+                           anchor_items: Optional[Dict] = None,
+                           method: str = "ML") -> pd.DataFrame:
         """
         Calibra parâmetros dos itens usando modelo 3PL
         
         Args:
             responses_df: DataFrame com respostas dos alunos
             anchor_items: Dicionário com itens âncora {questao: {'a': val, 'b': val, 'c': val}}
+            method: Método de calibração ("ML" para Máxima Verossimilhança ou "MLF" para MLF)
             
         Returns:
             DataFrame com parâmetros calibrados
         """
         try:
+            # Validar método de calibração
+            if method not in ["ML", "MLF"]:
+                raise ValueError(f"Método '{method}' não suportado. Use 'ML' ou 'MLF'")
+            
+            self.logger.info(f"Iniciando calibração usando método: {method}")
+            
             # Preparar matriz de respostas
             response_matrix, item_mapping = self.prepare_response_matrix(responses_df)
             
@@ -80,12 +88,12 @@ class ItemCalibrator:
             if anchor_items and np.sum(anchor_mask) > 0:
                 self.logger.info("Usando calibração relativa com itens âncora")
                 calibrated_params = self._calibrate_relative_to_anchors(
-                    response_array, anchor_mask, anchor_items, item_mapping
+                    response_array, anchor_mask, anchor_items, item_mapping, method
                 )
             else:
                 self.logger.info("Usando calibração independente (sem âncoras)")
                 calibrated_params = self._calibrate_independent_items(
-                    response_array, anchor_mask, item_mapping
+                    response_array, anchor_mask, item_mapping, method
                 )
             
             # Combinar com itens âncora
@@ -103,7 +111,8 @@ class ItemCalibrator:
     def _calibrate_relative_to_anchors(self, response_array: np.ndarray,
                                       anchor_mask: np.ndarray,
                                       anchor_items: Dict,
-                                      item_mapping: Dict) -> pd.DataFrame:
+                                      item_mapping: Dict,
+                                      method: str = "ML") -> pd.DataFrame:
         """
         Calibra itens usando âncoras como referência para manter escala
         """
@@ -133,7 +142,7 @@ class ItemCalibrator:
                     valid_responses = item_responses[valid_mask]
                     
                     params = self._estimate_item_parameters_with_theta(
-                        valid_responses, valid_thetas
+                        valid_responses, valid_thetas, method
                     )
                 
                 calibrated_params.append({
@@ -142,7 +151,7 @@ class ItemCalibrator:
                     'b': params['b'],
                     'c': params['c'],
                     'calibrated': True,
-                    'method': 'relative_to_anchors'
+                    'method': f'relative_to_anchors_{method}'
                 })
         
         return pd.DataFrame(calibrated_params)
@@ -197,9 +206,25 @@ class ItemCalibrator:
         return thetas
     
     def _estimate_item_parameters_with_theta(self, responses: np.ndarray,
-                                           thetas: np.ndarray) -> Dict:
+                                           thetas: np.ndarray,
+                                           method: str = "ML") -> Dict:
         """
         Estima parâmetros de um item usando theta conhecido dos âncoras
+        
+        Args:
+            responses: Array com respostas (0 ou 1)
+            thetas: Array com valores de theta estimados
+            method: Método de calibração ("ML" ou "MLF")
+        """
+        if method == "MLF":
+            return self._estimate_item_parameters_with_theta_mlf(responses, thetas)
+        else:
+            return self._estimate_item_parameters_with_theta_ml(responses, thetas)
+    
+    def _estimate_item_parameters_with_theta_ml(self, responses: np.ndarray,
+                                              thetas: np.ndarray) -> Dict:
+        """
+        Estima parâmetros usando Máxima Verossimilhança com theta conhecido
         """
         # Valores iniciais
         initial_params = [1.0, 0.0, 0.2]  # a, b, c
@@ -238,9 +263,101 @@ class ItemCalibrator:
             self.logger.warning(f"Erro na otimização: {e}")
             return {'a': 1.0, 'b': 0.0, 'c': 0.2}
     
+    def _estimate_item_parameters_with_theta_mlf(self, responses: np.ndarray,
+                                               thetas: np.ndarray) -> Dict:
+        """
+        Estima parâmetros usando MLF com theta conhecido dos âncoras
+        """
+        # Valores iniciais
+        initial_params = [1.0, 0.0, 0.2]  # a, b, c
+        
+        # Calcular estatísticas básicas para definir fences
+        n_responses = len(responses)
+        p_observed = np.mean(responses)
+        
+        # Definir fences baseados no tamanho da amostra
+        if n_responses < 30:
+            a_fence = (0.2, 3.0)
+            b_fence = (-2.5, 2.5)
+            c_fence = (0.05, 0.4)
+        elif n_responses < 100:
+            a_fence = (0.1, 4.0)
+            b_fence = (-3.0, 3.0)
+            c_fence = (0.05, 0.35)
+        else:
+            a_fence = (0.1, 5.0)
+            b_fence = (-4.0, 4.0)
+            c_fence = (0.05, 0.3)
+        
+        # Ajustar fence do parâmetro c baseado na proporção observada
+        if p_observed < 0.1:
+            c_fence = (0.05, 0.25)
+        elif p_observed > 0.9:
+            c_fence = (0.05, 0.15)
+        
+        # Função objetivo com fences e theta conhecido
+        def objective(params):
+            a, b, c = params
+            
+            # Verificar se parâmetros estão dentro das fences
+            if not (a_fence[0] <= a <= a_fence[1]):
+                return 1e6
+            if not (b_fence[0] <= b <= b_fence[1]):
+                return 1e6
+            if not (c_fence[0] <= c <= c_fence[1]):
+                return 1e6
+            
+            # Calcular probabilidades esperadas para cada theta
+            probs = []
+            for theta in thetas:
+                p = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta - b)))
+                probs.append(p)
+            
+            probs = np.array(probs)
+            probs = np.clip(probs, 1e-6, 1 - 1e-6)
+            
+            # Log-likelihood
+            ll = np.sum(responses * np.log(probs) + (1 - responses) * np.log(1 - probs))
+            
+            # Adicionar penalidade suave para parâmetros próximos aos limites das fences
+            penalty = 0
+            if a > a_fence[1] * 0.8:
+                penalty += (a - a_fence[1] * 0.8) * 0.1
+            if a < a_fence[0] * 1.2:
+                penalty += (a_fence[0] * 1.2 - a) * 0.1
+                
+            if b > b_fence[1] * 0.8:
+                penalty += (b - b_fence[1] * 0.8) * 0.1
+            if b < b_fence[0] * 1.2:
+                penalty += (b_fence[0] * 1.2 - b) * 0.1
+                
+            if c > c_fence[1] * 0.8:
+                penalty += (c - c_fence[1] * 0.8) * 0.1
+            if c < c_fence[0] * 1.2:
+                penalty += (c_fence[0] * 1.2 - c) * 0.1
+            
+            return -ll + penalty
+        
+        # Otimização com restrições
+        try:
+            result = minimize(objective, initial_params, method='L-BFGS-B',
+                            bounds=[a_fence, b_fence, c_fence])
+            
+            if result.success:
+                self.logger.debug(f"MLF com theta convergiu com fences: a={a_fence}, b={b_fence}, c={c_fence}")
+                return {'a': result.x[0], 'b': result.x[1], 'c': result.x[2]}
+            else:
+                self.logger.warning("Otimização MLF com theta falhou, usando valores padrão")
+                return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+                
+        except Exception as e:
+            self.logger.warning(f"Erro na otimização MLF com theta: {e}")
+            return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+    
     def _calibrate_independent_items(self, response_array: np.ndarray,
                                    anchor_mask: np.ndarray,
-                                   item_mapping: Dict) -> pd.DataFrame:
+                                   item_mapping: Dict,
+                                   method: str = "ML") -> pd.DataFrame:
         """
         Calibra itens independentemente (método original)
         """
@@ -256,7 +373,7 @@ class ItemCalibrator:
                     self.logger.warning(f"Item {questao}: poucas respostas válidas")
                     params = {'a': 1.0, 'b': 0.0, 'c': 0.2}
                 else:
-                    params = self._estimate_item_parameters(item_responses[valid_mask])
+                    params = self._estimate_item_parameters(item_responses[valid_mask], method)
                 
                 calibrated_params.append({
                     'Questao': questao,
@@ -264,14 +381,27 @@ class ItemCalibrator:
                     'b': params['b'],
                     'c': params['c'],
                     'calibrated': True,
-                    'method': 'independent'
+                    'method': f'independent_{method}'
                 })
         
         return pd.DataFrame(calibrated_params)
     
-    def _estimate_item_parameters(self, responses: np.ndarray) -> Dict:
+    def _estimate_item_parameters(self, responses: np.ndarray, method: str = "ML") -> Dict:
         """
-        Estima parâmetros de um item usando otimização CORRIGIDA
+        Estima parâmetros de um item usando otimização
+        
+        Args:
+            responses: Array com respostas (0 ou 1)
+            method: Método de calibração ("ML" ou "MLF")
+        """
+        if method == "MLF":
+            return self._estimate_item_parameters_mlf(responses)
+        else:
+            return self._estimate_item_parameters_ml(responses)
+    
+    def _estimate_item_parameters_ml(self, responses: np.ndarray) -> Dict:
+        """
+        Estima parâmetros usando Máxima Verossimilhança (método original)
         """
         # Valores iniciais
         initial_params = [1.0, 0.0, 0.2]  # a, b, c
@@ -331,6 +461,133 @@ class ItemCalibrator:
             return {'a': best_params[0], 'b': best_params[1], 'c': best_params[2]}
         else:
             self.logger.warning("Todas as otimizações falharam, usando valores padrão")
+            return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+    
+    def _estimate_item_parameters_mlf(self, responses: np.ndarray) -> Dict:
+        """
+        Estima parâmetros usando Maximum Likelihood Estimation with Fences (MLF)
+        
+        O método MLF adiciona "fences" (cercas) para evitar estimativas extremas
+        dos parâmetros, especialmente para itens com poucas respostas ou padrões
+        atípicos de resposta.
+        """
+        # Valores iniciais
+        initial_params = [1.0, 0.0, 0.2]  # a, b, c
+        
+        # Calcular estatísticas básicas para definir fences
+        n_responses = len(responses)
+        p_observed = np.mean(responses)
+        
+        # Definir fences baseados no tamanho da amostra e proporção observada
+        if n_responses < 30:
+            # Amostras pequenas: fences mais restritivos
+            a_fence = (0.2, 3.0)
+            b_fence = (-2.5, 2.5)
+            c_fence = (0.05, 0.4)
+        elif n_responses < 100:
+            # Amostras médias: fences moderados
+            a_fence = (0.1, 4.0)
+            b_fence = (-3.0, 3.0)
+            c_fence = (0.05, 0.35)
+        else:
+            # Amostras grandes: fences mais permissivos
+            a_fence = (0.1, 5.0)
+            b_fence = (-4.0, 4.0)
+            c_fence = (0.05, 0.3)
+        
+        # Ajustar fence do parâmetro c baseado na proporção observada
+        if p_observed < 0.1:
+            c_fence = (0.05, 0.25)  # Proporção muito baixa
+        elif p_observed > 0.9:
+            c_fence = (0.05, 0.15)  # Proporção muito alta
+        
+        # Função objetivo com fences
+        def objective(params):
+            a, b, c = params
+            
+            # Verificar se parâmetros estão dentro das fences
+            if not (a_fence[0] <= a <= a_fence[1]):
+                return 1e6  # Penalidade severa para fora das fences
+            if not (b_fence[0] <= b <= b_fence[1]):
+                return 1e6
+            if not (c_fence[0] <= c <= c_fence[1]):
+                return 1e6
+            
+            # Estimativa robusta de theta baseada na proporção observada
+            if p_observed > c and p_observed < 1.0:
+                theta_est = b + (1 / (1.7 * a)) * np.log((p_observed - c) / (1 - c))
+            else:
+                theta_est = 2 * (p_observed - 0.5)  # Mapear [0,1] para [-1,1]
+            
+            # Calcular probabilidade esperada
+            p_correct = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta_est - b)))
+            
+            # Evitar problemas numéricos
+            p_correct = np.clip(p_correct, 1e-6, 1 - 1e-6)
+            
+            # Log-likelihood
+            ll = np.sum(responses * np.log(p_correct) + (1 - responses) * np.log(1 - p_correct))
+            
+            # Adicionar penalidade suave para parâmetros próximos aos limites das fences
+            # Isso encoraja estimativas mais centrais
+            penalty = 0
+            if a > a_fence[1] * 0.8:  # Próximo ao limite superior
+                penalty += (a - a_fence[1] * 0.8) * 0.1
+            if a < a_fence[0] * 1.2:  # Próximo ao limite inferior
+                penalty += (a_fence[0] * 1.2 - a) * 0.1
+                
+            if b > b_fence[1] * 0.8:
+                penalty += (b - b_fence[1] * 0.8) * 0.1
+            if b < b_fence[0] * 1.2:
+                penalty += (b_fence[0] * 1.2 - b) * 0.1
+                
+            if c > c_fence[1] * 0.8:
+                penalty += (c - c_fence[1] * 0.8) * 0.1
+            if c < c_fence[0] * 1.2:
+                penalty += (c_fence[0] * 1.2 - c) * 0.1
+            
+            return -ll + penalty  # Minimizar -log-likelihood + penalidade
+        
+        # Otimização com múltiplos pontos iniciais
+        best_params = None
+        best_value = float('inf')
+        
+        # Diferentes pontos iniciais, considerando as fences
+        initial_points = [
+            [1.0, 0.0, 0.2],  # Padrão
+            [0.8, -0.5, 0.15], # Alternativo 1
+            [1.2, 0.5, 0.25],  # Alternativo 2
+            [0.6, -1.0, 0.1],  # Alternativo 3
+            [1.5, 1.0, 0.3],   # Alternativo 4
+        ]
+        
+        # Ajustar pontos iniciais para ficarem dentro das fences
+        adjusted_points = []
+        for point in initial_points:
+            a, b, c = point
+            a = np.clip(a, a_fence[0], a_fence[1])
+            b = np.clip(b, b_fence[0], b_fence[1])
+            c = np.clip(c, c_fence[0], c_fence[1])
+            adjusted_points.append([a, b, c])
+        
+        for initial_point in adjusted_points:
+            try:
+                result = minimize(objective, initial_point, method='L-BFGS-B',
+                                bounds=[a_fence, b_fence, c_fence])
+                
+                if result.success and result.fun < best_value:
+                    best_params = result.x
+                    best_value = result.fun
+                    
+            except Exception as e:
+                self.logger.warning(f"Falha na otimização MLF com ponto inicial {initial_point}: {e}")
+                continue
+        
+        if best_params is not None:
+            self.logger.debug(f"MLF convergiu com fences: a={a_fence}, b={b_fence}, c={c_fence}")
+            return {'a': best_params[0], 'b': best_params[1], 'c': best_params[2]}
+        else:
+            self.logger.warning("Todas as otimizações MLF falharam, usando valores padrão")
             return {'a': 1.0, 'b': 0.0, 'c': 0.2}
     
     def _combine_anchor_and_calibrated(self, calibrated_params: pd.DataFrame,

@@ -4,7 +4,14 @@
 
 Este documento apresenta a implementação técnica do Sistema TRI (Teoria de Resposta ao Item) baseado no modelo de 3 parâmetros (3PL), seguindo as metodologias utilizadas no ENEM/SAEB. O sistema foi desenvolvido para estatísticos e psicometristas que necessitam de uma ferramenta robusta para análise de dados educacionais.
 
-## 🆕 **Atualizações Recentes (v3.0)**
+## 🆕 **Atualizações Recentes (v3.1)**
+
+### **Novas Funcionalidades:**
+- ✅ **Método MLF**: Maximum Likelihood Estimation with Fences implementado
+- ✅ **Fences adaptativos**: Restrições baseadas no tamanho da amostra e padrões de resposta
+- ✅ **Seleção de método**: Interface permite escolher entre ML e MLF
+- ✅ **API atualizada**: Suporte ao parâmetro `method` no endpoint `/calibrate`
+- ✅ **Documentação expandida**: Explicação detalhada dos métodos para estatísticos
 
 ### **Correções Implementadas:**
 - ✅ **Colunas duplicadas removidas**: Padronização para `theta`, `enem_score`, `acertos`, `total_itens`, `percentual_acertos`
@@ -35,6 +42,8 @@ Este documento apresenta a implementação técnica do Sistema TRI (Teoria de Re
 - ✅ **Múltiplos pontos iniciais**: Evita mínimos locais na otimização
 - ✅ **Constante 1.7 incluída**: Fórmula 3PL matematicamente correta
 - ✅ **Tratamento de casos extremos**: Respostas perfeitas e nulas
+- ✅ **Métodos de calibração**: ML (Máxima Verossimilhança) e MLF (Maximum Likelihood with Fences)
+- ✅ **Fences adaptativos**: Restrições baseadas no tamanho da amostra e padrões de resposta
 
 ## 🔬 Modelo TRI Implementado
 
@@ -174,74 +183,221 @@ def _calibrate_non_anchor_items(self, response_array: np.ndarray,
     return pd.DataFrame(calibrated_params)
 ```
 
-#### **3. Estimação de Parâmetros**
+#### **3. Métodos de Estimação de Parâmetros**
+
+O sistema oferece dois métodos de calibração para estimar os parâmetros dos itens:
+
+##### **3.1. ML - Máxima Verossimilhança (Maximum Likelihood)**
+
+O método ML é a abordagem clássica de estimação de parâmetros em TRI, baseada na maximização da função de verossimilhança:
+
+**Fundamento Teórico:**
+- Maximiza a probabilidade de observar os dados dados os parâmetros
+- Utiliza a função log-likelihood: `L(θ) = Σ[yi*log(Pi) + (1-yi)*log(1-Pi)]`
+- Implementa múltiplos pontos iniciais para evitar mínimos locais
+
+**Características:**
+- **Vantagem**: Estimativas não-viesadas para amostras grandes
+- **Desvantagem**: Pode produzir estimativas extremas em amostras pequenas
+- **Aplicação**: Ideal para testes com muitos respondentes (>500)
+
+##### **3.2. MLF - Maximum Likelihood with Fences**
+
+O método MLF é uma extensão do ML que adiciona "fences" (cercas) para controlar estimativas extremas:
+
+**Fundamento Teórico:**
+- Combina máxima verossimilhança com restrições adaptativas
+- Implementa penalidades suaves para parâmetros próximos aos limites
+- Ajusta as restrições baseado no tamanho da amostra e padrões de resposta
+
+**Fences Adaptativos por Tamanho de Amostra:**
+
+```python
+# Amostras pequenas (< 30 respondentes)
+a_fence = (0.2, 3.0)    # Discriminação mais restritiva
+b_fence = (-2.5, 2.5)   # Dificuldade moderada
+c_fence = (0.05, 0.4)   # Acerto casual mais permissivo
+
+# Amostras médias (30-100 respondentes)
+a_fence = (0.1, 4.0)    # Discriminação moderada
+b_fence = (-3.0, 3.0)   # Dificuldade padrão
+c_fence = (0.05, 0.35)  # Acerto casual moderado
+
+# Amostras grandes (> 100 respondentes)
+a_fence = (0.1, 5.0)    # Discriminação permissiva
+b_fence = (-4.0, 4.0)   # Dificuldade ampla
+c_fence = (0.05, 0.3)   # Acerto casual restritivo
+```
+
+**Ajustes Baseados na Proporção Observada:**
+- **Proporção < 10%**: `c_fence = (0.05, 0.25)` - Item muito difícil
+- **Proporção > 90%**: `c_fence = (0.05, 0.15)` - Item muito fácil
+
+**Características:**
+- **Vantagem**: Estimativas mais estáveis e interpretáveis
+- **Vantagem**: Melhor performance em amostras pequenas
+- **Vantagem**: Reduz estimativas extremas problemáticas
+- **Aplicação**: Ideal para testes piloto, amostras pequenas ou dados com padrões atípicos
+
+##### **3.3. Comparação dos Métodos**
+
+| Aspecto | ML | MLF |
+|---------|----|----|
+| **Amostras Grandes (>500)** | ✅ Ótimo | ✅ Bom |
+| **Amostras Pequenas (<100)** | ⚠️ Pode ser instável | ✅ Recomendado |
+| **Estimativas Extremas** | ❌ Comum | ✅ Controladas |
+| **Interpretabilidade** | ⚠️ Pode ser difícil | ✅ Mais clara |
+| **Convergência** | ⚠️ Pode falhar | ✅ Mais robusta |
+| **Tempo de Processamento** | ✅ Rápido | ⚠️ Ligeiramente mais lento |
+
+**Recomendação de Uso:**
+- **Use ML** quando: Amostra grande (>500), dados bem comportados, prioridade na não-viesamento
+- **Use MLF** quando: Amostra pequena (<100), dados com padrões atípicos, prioridade na estabilidade
 
 A estimação utiliza máxima verossimilhança com restrições:
 
 ```python
-def _estimate_item_parameters(self, responses: np.ndarray) -> Dict:
+def calibrate_items_3pl(self, responses_df: pd.DataFrame, 
+                       anchor_items: Optional[Dict] = None,
+                       method: str = "ML") -> pd.DataFrame:
     """
-    Estima parâmetros de um item usando otimização CORRIGIDA
+    Calibra parâmetros dos itens usando modelo 3PL
+    
+    Args:
+        responses_df: DataFrame com respostas dos alunos
+        anchor_items: Dicionário com itens âncora {questao: {'a': val, 'b': val, 'c': val}}
+        method: Método de calibração ("ML" ou "MLF")
+        
+    Returns:
+        DataFrame com parâmetros calibrados
     """
-    # Valores iniciais
-    initial_params = [1.0, 0.0, 0.2]  # a, b, c
+    # Validar método de calibração
+    if method not in ["ML", "MLF"]:
+        raise ValueError(f"Método '{method}' não suportado. Use 'ML' ou 'MLF'")
+    
+    # Preparar matriz de respostas
+    response_matrix, item_mapping = self.prepare_response_matrix(responses_df)
+    response_array = response_matrix.values
+    
+    # Identificar itens âncora
+    anchor_mask = np.zeros(len(response_matrix.columns), dtype=bool)
+    if anchor_items:
+        for questao, params in anchor_items.items():
+            if questao in item_mapping:
+                idx = item_mapping[questao] - 1
+                anchor_mask[idx] = True
+    
+    # Escolher método de calibração
+    if anchor_items and np.sum(anchor_mask) > 0:
+        calibrated_params = self._calibrate_relative_to_anchors(
+            response_array, anchor_mask, anchor_items, item_mapping, method
+        )
+    else:
+        calibrated_params = self._calibrate_independent_items(
+            response_array, anchor_mask, item_mapping, method
+        )
+    
+    return self._combine_anchor_and_calibrated(
+        calibrated_params, anchor_items, item_mapping
+    )
 
-    # Função objetivo corrigida
+def _estimate_item_parameters_mlf(self, responses: np.ndarray) -> Dict:
+    """
+    Estima parâmetros usando MLF com fences adaptativos
+    """
+    n_responses = len(responses)
+    p_observed = np.mean(responses)
+    
+    # Definir fences baseados no tamanho da amostra
+    if n_responses < 30:
+        a_fence = (0.2, 3.0)
+        b_fence = (-2.5, 2.5)
+        c_fence = (0.05, 0.4)
+    elif n_responses < 100:
+        a_fence = (0.1, 4.0)
+        b_fence = (-3.0, 3.0)
+        c_fence = (0.05, 0.35)
+    else:
+        a_fence = (0.1, 5.0)
+        b_fence = (-4.0, 4.0)
+        c_fence = (0.05, 0.3)
+    
+    # Ajustar fence do parâmetro c baseado na proporção observada
+    if p_observed < 0.1:
+        c_fence = (0.05, 0.25)
+    elif p_observed > 0.9:
+        c_fence = (0.05, 0.15)
+    
+    # Função objetivo com fences e penalidades suaves
     def objective(params):
         a, b, c = params
-        if a <= 0 or c < 0 or c > 1:
-            return 1e6  # Penalidade para parâmetros inválidos
-
-        # CORREÇÃO: Usar estimativa mais robusta de theta
-        p_observed = np.mean(responses)
-
-        # Estimativa inicial de theta baseada na proporção observada
-        if p_observed > c and p_observed < 1.0:
-            theta_est = b + (1 / (1.7 * a)) * np.log((p_observed - c) / (1 - c))
-        else:
-            theta_est = 2 * (p_observed - 0.5)  # Mapear [0,1] para [-1,1]
-
-        # CORREÇÃO: Incluir constante 1.7 do modelo 3PL
+        
+        # Verificar se parâmetros estão dentro das fences
+        if not (a_fence[0] <= a <= a_fence[1]):
+            return 1e6
+        if not (b_fence[0] <= b <= b_fence[1]):
+            return 1e6
+        if not (c_fence[0] <= c <= c_fence[1]):
+            return 1e6
+        
+        # Calcular log-likelihood
+        theta_est = self._estimate_theta_robust(responses, a, b, c)
         p_correct = c + (1 - c) / (1 + np.exp(-1.7 * a * (theta_est - b)))
-
-        # Evitar problemas numéricos
         p_correct = np.clip(p_correct, 1e-6, 1 - 1e-6)
-
-        # Log-likelihood
+        
         ll = np.sum(responses * np.log(p_correct) + (1 - responses) * np.log(1 - p_correct))
-        return -ll  # Minimizar -log-likelihood
-
-    # Otimização com múltiplos pontos iniciais
-    best_params = None
-    best_value = float('inf')
-
-    # Diferentes pontos iniciais para evitar mínimos locais
-    initial_points = [
-        [1.0, 0.0, 0.2],   # Padrão
-        [0.8, -0.5, 0.15], # Alternativo 1
-        [1.2, 0.5, 0.25],  # Alternativo 2
-        [0.6, -1.0, 0.1],  # Alternativo 3
-        [1.5, 1.0, 0.3],   # Alternativo 4
-    ]
-
-    for initial_point in initial_points:
-        try:
-            result = minimize(objective, initial_point, method='L-BFGS-B',
-                            bounds=[(0.1, 5.0), (-3.0, 3.0), (0.0, 0.5)])
-
-            if result.success and result.fun < best_value:
-                best_params = result.x
-                best_value = result.fun
-
-        except Exception as e:
-            self.logger.warning(f"Falha na otimização com ponto inicial {initial_point}: {e}")
-            continue
-
-    if best_params is not None:
-        return {'a': best_params[0], 'b': best_params[1], 'c': best_params[2]}
+        
+        # Adicionar penalidade suave para parâmetros próximos aos limites
+        penalty = self._calculate_fence_penalty(params, a_fence, b_fence, c_fence)
+        
+        return -ll + penalty
+    
+    # Otimização com restrições
+    result = minimize(objective, [1.0, 0.0, 0.2], method='L-BFGS-B',
+                    bounds=[a_fence, b_fence, c_fence])
+    
+    if result.success:
+        return {'a': result.x[0], 'b': result.x[1], 'c': result.x[2]}
     else:
-        self.logger.warning("Todas as otimizações falharam, usando valores padrão")
         return {'a': 1.0, 'b': 0.0, 'c': 0.2}
+```
+
+##### **3.4. Uso na Interface**
+
+**No Dashboard:**
+1. Acesse a aba "Parâmetros"
+2. Selecione o método desejado no dropdown "Método de Calibração":
+   - **"MLF - Maximum Likelihood with Fences"** (recomendado para a maioria dos casos)
+   - **"ML - Máxima Verossimilhança"** (para amostras grandes e dados bem comportados)
+3. Faça upload dos dados e clique em "Aplicar Parâmetros / Calibrar"
+
+**Na API:**
+```python
+# Usando MLF (recomendado)
+POST /calibrate?method=MLF
+
+# Usando ML (tradicional)
+POST /calibrate?method=ML
+```
+
+**Programaticamente:**
+```python
+from core.item_calibration import ItemCalibrator
+
+calibrator = ItemCalibrator()
+
+# Calibração com MLF
+params_mlf = calibrator.calibrate_items_3pl(responses_df, method="MLF")
+
+# Calibração com ML
+params_ml = calibrator.calibrate_items_3pl(responses_df, method="ML")
+
+# Calibração com âncoras usando MLF
+params_with_anchors = calibrator.calibrate_items_3pl(
+    responses_df, 
+    anchor_items=anchor_dict, 
+    method="MLF"
+)
 ```
 
 ### **Validação de Âncoras**

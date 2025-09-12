@@ -300,7 +300,10 @@ class TRIDashboard:
                     selected_param_set_id = options.get(choice)
         
         with col2:
-            calibration_method = st.selectbox("Método de Calibração:", ["3PL - Máxima Verossimilhança"])        
+            calibration_method = st.selectbox("Método de Calibração:", [
+                "MLF - Maximum Likelihood with Fences",
+                "ML - Máxima Verossimilhança"
+            ])        
         
         # Botão principal da aba: calibrar (a partir de âncoras opcionais) ou carregar conjunto salvo
         if st.button("Aplicar Parâmetros / Calibrar", type="primary"):
@@ -338,7 +341,9 @@ class TRIDashboard:
 
                     # Se não selecionou conjunto salvo, calibrar
                     if params_df is None:
-                        calibrated_params = self.calibrator.calibrate_items_3pl(responses_df, anchor_items)
+                        # Extrair método selecionado
+                        method = "ML" if "ML - Máxima Verossimilhança" in calibration_method else "MLF"
+                        calibrated_params = self.calibrator.calibrate_items_3pl(responses_df, anchor_items, method)
                         st.session_state['calibrated_params'] = calibrated_params
                         validation = self.calibrator.validate_calibration(calibrated_params)
                         if validation['valid']:
@@ -360,7 +365,9 @@ class TRIDashboard:
                             # Mostrar resultados
                             self.show_calibration_results(calibrated_params, validation)
                             csv = calibrated_params.to_csv(index=False)
-                            st.download_button(label="📥 Download Parâmetros Calibrados (CSV)", data=csv, file_name="parametros_calibrados.csv", mime="text/csv", key="download_calibrated_params")
+                            # Gerar chave única baseada no hash dos dados para evitar duplicação
+                            csv_hash = hash(csv) % 1000000
+                            st.download_button(label="📥 Download Parâmetros Calibrados (CSV)", data=csv, file_name="parametros_calibrados.csv", mime="text/csv", key=f"download_calibrated_params_{csv_hash}")
                         else:
                             st.error("❌ Problemas na calibração:")
                             for error in validation['errors']:
@@ -598,12 +605,14 @@ class TRIDashboard:
         
         # Download dos resultados
         csv_data = results_df.to_csv(index=False)
+        # Gerar chave única baseada no hash dos dados para evitar duplicação
+        data_hash = hash(csv_data) % 1000000  # Usar apenas os últimos 6 dígitos
         st.download_button(
             label="📥 Download Resultados (CSV)",
             data=csv_data,
             file_name=f"resultados_tri_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            key="download_tri_results_main"
+            key=f"download_tri_results_main_{data_hash}"
         )
 
     def show_calibration_results(self, calibrated_params, validation=None, show_validation=True):
@@ -861,12 +870,14 @@ class TRIDashboard:
             
             # Download dos resultados
             csv_data = results_df.to_csv(index=False)
+            # Gerar chave única baseada no hash dos dados para evitar duplicação
+            data_hash = hash(csv_data) % 1000000  # Usar apenas os últimos 6 dígitos
             st.download_button(
                 label="📥 Download Resultados (CSV)",
                 data=csv_data,
                 file_name=f"resultados_tri_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                key="download_tri_results_tab"
+                key=f"download_tri_results_tab_{data_hash}"
             )
         
         

@@ -16,6 +16,8 @@ Sistema completo e profissional para correção de provas utilizando a **Teoria 
 - 🎯 **Itens Âncora**: Suporte completo para calibração com itens de referência
 - 🔄 **Equating de Escalas**: Manutenção de consistência entre aplicações
 - 📊 **Calibração Relativa**: Calibração de novos itens usando âncoras como referência
+- 🔬 **Métodos de Calibração**: ML (Máxima Verossimilhança) e MLF (Maximum Likelihood with Fences)
+- 🛡️ **Fences Adaptativos**: Controle de estimativas extremas baseado no tamanho da amostra
 
 ## 🏗️ Arquitetura do Sistema
 
@@ -265,6 +267,23 @@ validation:
 - **Escala ENEM**: Conversão automática (500 + 100*theta)
 - **Parâmetros Customizáveis**: Suporte a parâmetros calibrados
 - **Itens Âncora**: Calibração de novos itens usando itens de referência pré-calibrados
+
+### 🔬 **Métodos de Calibração**
+
+#### **ML - Máxima Verossimilhança**
+- Método clássico de estimação de parâmetros
+- Ideal para amostras grandes (>500 respondentes)
+- Estimativas não-viesadas para dados bem comportados
+- Pode produzir estimativas extremas em amostras pequenas
+
+#### **MLF - Maximum Likelihood with Fences**
+- Extensão do ML com restrições adaptativas
+- Fences baseados no tamanho da amostra e padrões de resposta
+- Ideal para amostras pequenas (<100 respondentes)
+- Estimativas mais estáveis e interpretáveis
+- Controle de estimativas extremas problemáticas
+
+**Recomendação**: Use MLF como método padrão, reservando ML para casos específicos com amostras grandes.
 
 ### 🎯 **Sistema de Itens Âncora**
 

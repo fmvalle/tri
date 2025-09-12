@@ -96,6 +96,7 @@ def get_results(execution_id: int, session: Session = Depends(get_session)):
 async def calibrate_items(
     dataset_name: str,
     file: UploadFile = File(...),
+    method: str = "ML",
     session: Session = Depends(get_session),
 ):
     filename = file.filename
@@ -106,14 +107,18 @@ async def calibrate_items(
     df = pd.read_csv(pd.io.common.BytesIO(content), sep=';', encoding='utf-8')
     df = data_processor._clean_responses_data(df)
 
-    params_df = calibrator.calibrate_items_3pl(df)
+    # Validar método
+    if method not in ["ML", "MLF"]:
+        raise HTTPException(status_code=400, detail="Método deve ser 'ML' ou 'MLF'")
+
+    params_df = calibrator.calibrate_items_3pl(df, method=method)
     validation = calibrator.validate_calibration(params_df)
     if not validation["valid"]:
         raise HTTPException(status_code=400, detail=str(validation["errors"]))
 
     param_set = crud.create_parameters_set(session, name=f"calibrated:{dataset_name}", is_anchor=False, params_df=params_df)
     dataset = crud.create_dataset(session, name=dataset_name, source_type="csv", file_name=filename)
-    execution = crud.create_execution(session, dataset_id=dataset.id, parameters_set_id=param_set.id, status="completed", notes="Calibração de itens")
+    execution = crud.create_execution(session, dataset_id=dataset.id, parameters_set_id=param_set.id, status="completed", notes=f"Calibração de itens usando método {method}")
 
     return ExecutionResponse(execution_id=execution.id)
 
